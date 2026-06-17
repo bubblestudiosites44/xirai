@@ -246,81 +246,79 @@ export default function Home() {
   };
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-background p-0 sm:p-4 lg:p-7">
-      <div className="xirako-app-frame texture-grain relative mx-auto flex h-screen w-full max-w-[100rem] overflow-hidden sm:h-[calc(100vh-2rem)] lg:h-[calc(100vh-3.5rem)]">
-        <GlowOrbs />
+    <div className="relative flex h-screen w-full overflow-hidden bg-background">
+      <GlowOrbs />
 
-        <Sidebar
-          conversations={conversations}
-          activeId={activeId}
-          onSelect={setActiveId}
-          onCreate={createConversation}
-          onDelete={deleteConversation}
-          onRename={renameConversation}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          user={user}
-          onLogout={logout}
-          onLogin={navigateToLogin}
-          anonymousUsage={anonymousUsage}
-          anonymousLimit={ANON_MESSAGE_LIMIT}
-        />
+      <Sidebar
+        conversations={conversations}
+        activeId={activeId}
+        onSelect={setActiveId}
+        onCreate={createConversation}
+        onDelete={deleteConversation}
+        onRename={renameConversation}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        user={user}
+        onLogout={logout}
+        onLogin={navigateToLogin}
+        anonymousUsage={anonymousUsage}
+        anonymousLimit={ANON_MESSAGE_LIMIT}
+      />
 
-        <main className="relative z-10 flex min-w-0 flex-1 flex-col">
-          <div className="z-10 flex min-h-[4.35rem] items-center gap-3 border-b border-white/10 bg-black/25 px-4 py-3 backdrop-blur-xl">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="rounded-full border border-white/10 bg-white/[0.04] p-2 text-foreground transition hover:bg-white/[0.09] md:hidden"
-              aria-label="Open sidebar"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <h2 className="min-w-0 truncate font-heading text-sm font-semibold text-foreground">
-              {activeId ? conversations.find((c) => c.id === activeId)?.title || "Chat" : "XirAI"}
-            </h2>
+      <main className="relative z-10 flex min-w-0 flex-1 flex-col">
+        <div className="z-10 flex min-h-[4.35rem] items-center gap-3 border-b border-white/10 bg-black/25 px-4 py-3 backdrop-blur-xl">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-full border border-white/10 bg-white/[0.04] p-2 text-foreground transition hover:bg-white/[0.09] md:hidden"
+            aria-label="Open sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <h2 className="min-w-0 truncate font-heading text-sm font-semibold text-foreground">
+            {activeId ? conversations.find((c) => c.id === activeId)?.title || "Chat" : "XirAI"}
+          </h2>
+        </div>
+
+        {!activeId && messages.length === 0 ? (
+          <WelcomeScreen onSuggestion={sendMessage} />
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} />
+              ))}
+              {isLoading && <TypingIndicator />}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
+        )}
 
-          {!activeId && messages.length === 0 ? (
-            <WelcomeScreen onSuggestion={sendMessage} />
-          ) : (
-            <div className="flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
-                {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} />
-                ))}
-                {isLoading && <TypingIndicator />}
-                <div ref={messagesEndRef} />
+        <div className="border-t border-white/10 bg-black/25 p-4 backdrop-blur-xl">
+          <div className="mx-auto max-w-3xl">
+            {!isAuthenticated && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 text-primary" />
+                  Guest messages: {anonymousUsage}/{ANON_MESSAGE_LIMIT}
+                </span>
+                {anonymousUsage >= ANON_MESSAGE_LIMIT && (
+                  <button className="font-semibold text-primary" onClick={navigateToLogin}>
+                    Sign in
+                  </button>
+                )}
               </div>
-            </div>
-          )}
-
-          <div className="border-t border-white/10 bg-black/25 p-4 backdrop-blur-xl">
-            <div className="mx-auto max-w-3xl">
-              {!isAuthenticated && (
-                <div className="mb-3 flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-2">
-                    <AlertCircle className="h-3.5 w-3.5 text-primary" />
-                    Guest messages: {anonymousUsage}/{ANON_MESSAGE_LIMIT}
-                  </span>
-                  {anonymousUsage >= ANON_MESSAGE_LIMIT && (
-                    <button className="font-semibold text-primary" onClick={navigateToLogin}>
-                      Sign in
-                    </button>
-                  )}
-                </div>
-              )}
-              <ChatInput
-                onSend={sendMessage}
-                isLoading={isLoading}
-                isLimited={!isAuthenticated && anonymousUsage >= ANON_MESSAGE_LIMIT}
-              />
-              <p className="mt-2.5 text-center text-[10px] font-medium tracking-wide text-muted-foreground">
-                XirAI can make mistakes. Check important info.
-              </p>
-            </div>
+            )}
+            <ChatInput
+              onSend={sendMessage}
+              isLoading={isLoading}
+              isLimited={!isAuthenticated && anonymousUsage >= ANON_MESSAGE_LIMIT}
+            />
+            <p className="mt-2.5 text-center text-[10px] font-medium tracking-wide text-muted-foreground">
+              XirAI can make mistakes. Check important info.
+            </p>
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
