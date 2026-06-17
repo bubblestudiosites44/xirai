@@ -1,0 +1,13 @@
+{
+  "name": "Conversation",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "default": "New Chat"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

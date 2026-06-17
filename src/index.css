@@ -1,0 +1,138 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 190 45% 4.7%;
+    --foreground: 180 17% 95%;
+    --card: 190 32% 8%;
+    --card-foreground: 180 17% 95%;
+    --popover: 190 32% 8%;
+    --popover-foreground: 180 17% 95%;
+    --primary: 164 88% 57%;
+    --primary-foreground: 165 58% 10%;
+    --secondary: 188 28% 15%;
+    --secondary-foreground: 180 18% 91%;
+    --muted: 188 25% 13%;
+    --muted-foreground: 180 12% 66%;
+    --accent: 181 78% 49%;
+    --accent-foreground: 189 66% 8%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 160 8% 16%;
+    --input: 160 8% 16%;
+    --ring: 160 84% 45%;
+    --chart-1: 160 84% 45%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 1rem;
+    --font-heading: "Sora", ui-sans-serif, system-ui, sans-serif;
+    --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --sidebar-background: 190 45% 4.7%;
+    --sidebar-foreground: 180 17% 95%;
+    --sidebar-primary: 164 88% 57%;
+    --sidebar-primary-foreground: 165 58% 10%;
+    --sidebar-accent: 188 28% 15%;
+    --sidebar-accent-foreground: 180 18% 91%;
+    --sidebar-border: 185 20% 17%;
+    --sidebar-ring: 164 88% 57%;
+  }
+
+  .dark {
+    --background: 160 10% 4%;
+    --foreground: 0 0% 96%;
+    --card: 160 10% 7%;
+    --card-foreground: 0 0% 96%;
+    --popover: 160 10% 7%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 160 84% 45%;
+    --primary-foreground: 160 10% 4%;
+    --secondary: 160 10% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 160 8% 14%;
+    --muted-foreground: 160 5% 50%;
+    --accent: 160 84% 45%;
+    --accent-foreground: 160 10% 4%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 160 8% 16%;
+    --input: 160 8% 16%;
+    --ring: 160 84% 45%;
+    --chart-1: 160 84% 45%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --sidebar-background: 160 10% 5%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 160 84% 45%;
+    --sidebar-primary-foreground: 160 10% 4%;
+    --sidebar-accent: 160 10% 10%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 160 8% 14%;
+    --sidebar-ring: 160 84% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(35, 174, 125, 0.28) 0%, transparent 35%),
+      radial-gradient(circle at 85% 4%, rgba(84, 228, 236, 0.16) 0%, transparent 30%),
+      linear-gradient(180deg, #020607 0%, #010203 100%);
+    background-attachment: fixed;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(160 8% 20%);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(160 8% 28%);
+}
+
+/* Glow effects */
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.texture-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  mix-blend-mode: screen;
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.17) 0.7px, transparent 0.7px),
+    radial-gradient(rgba(255, 255, 255, 0.09) 0.55px, transparent 0.55px);
+  background-position: 0 0, 1px 1px;
+  background-size: 2px 2px, 3px 3px;
+}

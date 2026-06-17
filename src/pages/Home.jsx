@@ -1,0 +1,265 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Menu } from "lucide-react";
+import Sidebar from "@/components/chat/Sidebar";
+import MessageBubble from "@/components/chat/MessageBubble";
+import ChatInput from "@/components/chat/ChatInput";
+import WelcomeScreen from "@/components/chat/WelcomeScreen";
+import TypingIndicator from "@/components/chat/TypingIndicator";
+import GlowOrbs from "@/components/chat/GlowOrbs";
+import { useAuth } from "@/lib/AuthContext";
+
+const STORAGE_KEY = "xirai.chat.v1";
+
+const makeId = () =>
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const loadStoredChats = () => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) {
+      return { conversations: [], messagesByConversation: {} };
+    }
+
+    const parsed = JSON.parse(stored);
+    return {
+      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+      messagesByConversation: parsed.messagesByConversation || {},
+    };
+  } catch {
+    return { conversations: [], messagesByConversation: {} };
+  }
+};
+
+const titleFromMessage = (content) => {
+  const fallback = "New Chat";
+  const title = content.trim().replace(/\s+/g, " ").slice(0, 44);
+  return title || fallback;
+};
+
+export default function Home() {
+  const [store, setStore] = useState(loadStoredChats);
+  const [activeId, setActiveId] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const messagesEndRef = useRef(null);
+  const { user, logout, navigateToLogin } = useAuth();
+
+  const conversations = store.conversations;
+  const messages = useMemo(
+    () => (activeId ? store.messagesByConversation[activeId] || [] : []),
+    [activeId, store.messagesByConversation]
+  );
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  }, [store]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  const patchStore = (updater) => {
+    setStore((current) => {
+      const next = updater(current);
+      return {
+        conversations: next.conversations || current.conversations,
+        messagesByConversation: next.messagesByConversation || current.messagesByConversation,
+      };
+    });
+  };
+
+  const createConversation = () => {
+    const conv = {
+      id: makeId(),
+      title: "New Chat",
+      created_date: new Date().toISOString(),
+    };
+
+    patchStore((current) => ({
+      conversations: [conv, ...current.conversations],
+      messagesByConversation: {
+        ...current.messagesByConversation,
+        [conv.id]: [],
+      },
+    }));
+    setActiveId(conv.id);
+    setSidebarOpen(false);
+  };
+
+  const deleteConversation = (id) => {
+    patchStore((current) => {
+      const { [id]: _removed, ...remainingMessages } = current.messagesByConversation;
+      return {
+        conversations: current.conversations.filter((c) => c.id !== id),
+        messagesByConversation: remainingMessages,
+      };
+    });
+
+    if (activeId === id) {
+      setActiveId(null);
+    }
+  };
+
+  const renameConversation = (id, title) => {
+    patchStore((current) => ({
+      conversations: current.conversations.map((c) => (c.id === id ? { ...c, title } : c)),
+    }));
+  };
+
+  const sendMessage = async (content, attachments = []) => {
+    let currentConvId = activeId;
+    const now = new Date().toISOString();
+
+    if (!currentConvId) {
+      currentConvId = makeId();
+      const conv = {
+        id: currentConvId,
+        title: titleFromMessage(content),
+        created_date: now,
+      };
+
+      patchStore((current) => ({
+        conversations: [conv, ...current.conversations],
+        messagesByConversation: {
+          ...current.messagesByConversation,
+          [currentConvId]: [],
+        },
+      }));
+      setActiveId(currentConvId);
+    }
+
+    const userMsg = {
+      id: makeId(),
+      conversation_id: currentConvId,
+      role: "user",
+      content,
+      attachments,
+      created_date: now,
+    };
+
+    const nextMessages = [...(store.messagesByConversation[currentConvId] || []), userMsg];
+
+    patchStore((current) => ({
+      messagesByConversation: {
+        ...current.messagesByConversation,
+        [currentConvId]: nextMessages,
+      },
+    }));
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: nextMessages.slice(-10),
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "XirAI could not reach Groq.");
+      }
+
+      const data = await res.json();
+      const aiMsg = {
+        id: makeId(),
+        conversation_id: currentConvId,
+        role: "assistant",
+        content: data.content || "Sorry, I couldn't get a response.",
+        created_date: new Date().toISOString(),
+      };
+
+      patchStore((current) => ({
+        messagesByConversation: {
+          ...current.messagesByConversation,
+          [currentConvId]: [...(current.messagesByConversation[currentConvId] || []), aiMsg],
+        },
+      }));
+    } catch (err) {
+      const errorMsg = {
+        id: makeId(),
+        conversation_id: currentConvId,
+        role: "assistant",
+        content: `I hit an API issue: ${err.message}`,
+        created_date: new Date().toISOString(),
+      };
+
+      patchStore((current) => ({
+        messagesByConversation: {
+          ...current.messagesByConversation,
+          [currentConvId]: [...(current.messagesByConversation[currentConvId] || []), errorMsg],
+        },
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative flex h-screen w-full overflow-hidden bg-background">
+      <GlowOrbs />
+
+      <Sidebar
+        conversations={conversations}
+        activeId={activeId}
+        onSelect={setActiveId}
+        onCreate={createConversation}
+        onDelete={deleteConversation}
+        onRename={renameConversation}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        user={user}
+        onLogout={logout}
+        onLogin={navigateToLogin}
+      />
+
+      <main className="relative flex min-w-0 flex-1 flex-col">
+        <div className="z-10 flex items-center gap-3 border-b border-white/10 bg-black/35 px-4 py-3 backdrop-blur-xl">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-full border border-white/10 bg-white/[0.04] p-2 text-foreground transition hover:bg-white/[0.09] md:hidden"
+            aria-label="Open sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="min-w-0">
+            <h2 className="truncate font-heading text-sm font-semibold text-foreground">
+              {activeId ? conversations.find((c) => c.id === activeId)?.title || "Chat" : "XirAI"}
+            </h2>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              ai.xirako.com
+            </p>
+          </div>
+        </div>
+
+        {!activeId && messages.length === 0 ? (
+          <WelcomeScreen onSuggestion={sendMessage} />
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} />
+              ))}
+              {isLoading && <TypingIndicator />}
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+        )}
+
+        <div className="border-t border-white/10 bg-black/35 p-4 backdrop-blur-xl">
+          <div className="mx-auto max-w-3xl">
+            <ChatInput onSend={sendMessage} isLoading={isLoading} />
+            <p className="mt-2.5 text-center text-[10px] font-medium tracking-wide text-muted-foreground">
+              XirAI can make mistakes. Check important info.
+            </p>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
