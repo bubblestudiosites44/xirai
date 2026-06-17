@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/AuthContext";
 const STORAGE_KEY = "xirai.chat.v1";
 const ANON_USAGE_KEY = "xirai.anon.messages.v1";
 const ANON_MESSAGE_LIMIT = 20;
+const IMAGE_GENERATION_MIN_MS = 3600;
 
 const makeId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -51,16 +52,43 @@ const titleFromMessage = (content) => {
   return title || fallback;
 };
 
+const todayKey = () => new Date().toISOString().slice(0, 10);
+
+const loadAnonymousUsage = () => {
+  try {
+    const stored = localStorage.getItem(ANON_USAGE_KEY);
+    if (!stored) {
+      return 0;
+    }
+
+    const parsed = JSON.parse(stored);
+    if (typeof parsed === "number") {
+      return parsed;
+    }
+
+    return parsed?.date === todayKey() ? Number(parsed.count) || 0 : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const isImageRequest = (text = "") =>
+  [
+    /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
+    /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
+    /\b(make|create|generate|draw|render|design|paint|illustrate)\s+me\s+(a|an|some)?\s*(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)?\s*(of|for)?\b/i,
+    /\b(edit|update|modify|change|transform|turn)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration|this)\b/i,
+  ].some((pattern) => pattern.test(text));
+
+const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 export default function Home() {
   const [store, setStore] = useState(loadStoredChats);
   const [activeId, setActiveId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [anonymousUsage, setAnonymousUsage] = useState(() => {
-    const stored = Number(localStorage.getItem(ANON_USAGE_KEY));
-    return Number.isFinite(stored) ? stored : 0;
-  });
-  const { user, isAuthenticated, logout, navigateToLogin } = useAuth();
+  const [anonymousUsage, setAnonymousUsage] = useState(loadAnonymousUsage);
+  const { session, user, isAuthenticated, logout, navigateToLogin } = useAuth();
 
   const conversations = store.conversations;
   const messages = useMemo(
@@ -73,7 +101,13 @@ export default function Home() {
   }, [store]);
 
   useEffect(() => {
-    localStorage.setItem(ANON_USAGE_KEY, String(anonymousUsage));
+    localStorage.setItem(
+      ANON_USAGE_KEY,
+      JSON.stringify({
+        date: todayKey(),
+        count: anonymousUsage,
+      })
+    );
   }, [anonymousUsage]);
 
   const patchStore = (updater) => {
@@ -145,6 +179,43 @@ export default function Home() {
   };
 
   const sendMessage = async (content, attachments = []) => {
+    const wantsImage = isImageRequest(content);
+    const usesImageFeature = wantsImage || attachments.length > 0;
+
+    if (!isAuthenticated && usesImageFeature) {
+      const now = new Date().toISOString();
+      const currentConvId = activeId || makeId();
+      const signInMessage = {
+        id: makeId(),
+        conversation_id: currentConvId,
+        role: "assistant",
+        content: "Sign in with Xirako to generate, edit, or upload images.",
+        created_date: now,
+      };
+
+      patchStore((current) => {
+        const hasConversation = current.conversations.some((conv) => conv.id === currentConvId);
+        return {
+          conversations: hasConversation
+            ? current.conversations
+            : [
+                {
+                  id: currentConvId,
+                  title: "Image sign-in required",
+                  created_date: now,
+                },
+                ...current.conversations,
+              ],
+          messagesByConversation: {
+            ...current.messagesByConversation,
+            [currentConvId]: [...(current.messagesByConversation[currentConvId] || []), signInMessage],
+          },
+        };
+      });
+      setActiveId(currentConvId);
+      return;
+    }
+
     if (!isAuthenticated && anonymousUsage >= ANON_MESSAGE_LIMIT) {
       const now = new Date().toISOString();
       const currentConvId = activeId || makeId();
@@ -231,15 +302,18 @@ export default function Home() {
       role: "assistant",
       content: "",
       isStreaming: true,
+      isGeneratingImage: wantsImage,
       created_date: new Date().toISOString(),
     };
     addAssistantMessage(currentConvId, assistantMsg);
 
     try {
+      const startedAt = Date.now();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
           messages: nextMessages.slice(-10),
@@ -258,6 +332,7 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let responseContent = "";
+      const shouldDelayImage = wantsImage;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -266,21 +341,29 @@ export default function Home() {
         }
 
         responseContent += decoder.decode(value, { stream: true });
-        updateAssistantMessage(currentConvId, assistantMsg.id, {
-          content: responseContent,
-          isStreaming: true,
-        });
+        if (!shouldDelayImage) {
+          updateAssistantMessage(currentConvId, assistantMsg.id, {
+            content: responseContent,
+            isStreaming: true,
+          });
+        }
       }
 
       responseContent += decoder.decode();
+      if (shouldDelayImage) {
+        const elapsed = Date.now() - startedAt;
+        await wait(Math.max(0, IMAGE_GENERATION_MIN_MS - elapsed));
+      }
       updateAssistantMessage(currentConvId, assistantMsg.id, {
         content: responseContent || "Sorry, I couldn't get a response.",
         isStreaming: false,
+        isGeneratingImage: false,
       });
     } catch (err) {
       updateAssistantMessage(currentConvId, assistantMsg.id, {
         content: `I hit an API issue: ${err.message}`,
         isStreaming: false,
+        isGeneratingImage: false,
       });
     } finally {
       setIsLoading(false);

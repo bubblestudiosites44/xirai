@@ -35,6 +35,20 @@ function CodeBlock({ className = "", children }) {
   );
 }
 
+function ImageGenerationAnimation() {
+  return (
+    <div className="min-h-40 overflow-hidden rounded-2xl border border-primary/20 bg-black/25 p-4">
+      <div className="relative h-36 rounded-xl border border-white/10 bg-[radial-gradient(circle_at_30%_30%,rgba(45,245,197,0.34),transparent_34%),radial-gradient(circle_at_72%_68%,rgba(70,190,255,0.28),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.01))]">
+        <div className="absolute inset-y-0 left-[-35%] w-1/3 rotate-12 bg-white/20 blur-2xl animate-[image-scan_2.6s_ease-in-out_infinite]" />
+        <div className="absolute left-6 top-6 h-12 w-12 animate-pulse rounded-full border border-primary/30 bg-primary/20" />
+        <div className="absolute bottom-5 right-6 h-16 w-24 animate-pulse rounded-[1.4rem] border border-cyan-200/20 bg-cyan-200/10 [animation-delay:500ms]" />
+      </div>
+      <p className="mt-3 text-sm font-medium text-foreground">Making your image...</p>
+      <p className="mt-1 text-xs text-muted-foreground">This usually takes a few seconds.</p>
+    </div>
+  );
+}
+
 export default function MessageBubble({ message }) {
   const isUser = message.role === "user";
 
@@ -67,6 +81,8 @@ export default function MessageBubble({ message }) {
         )}
         {isUser ? (
           <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+        ) : message.isGeneratingImage ? (
+          <ImageGenerationAnimation />
         ) : message.isStreaming && !message.content ? (
           <div className="flex items-center gap-1 py-1">
             <span className="h-2 w-2 animate-bounce rounded-full bg-primary/70" />

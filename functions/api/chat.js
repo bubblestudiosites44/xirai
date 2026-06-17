@@ -1,6 +1,10 @@
 const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
+const SUPABASE_PROJECT_ID = "hbbtegiecallsiajrunj";
+const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
+const DEFAULT_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiYnRlZ2llY2FsbHNpYWpydW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE2NTEzOTAsImV4cCI6MjA2NzIyNzM5MH0.COj1AuZKSAtTjyghMYoPWfzvF2074tI6iAt2Usnj6JM";
 
 const json = (body, init = {}) =>
   new Response(JSON.stringify(body), {
@@ -43,12 +47,15 @@ const getLatestUserMessage = (messages) => {
 };
 
 const isImageRequest = (text = "") =>
-  /\b(generate|create|make|draw|edit|update|modify|change|turn|render)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art)\b/i.test(
-    text
-  ) ||
-  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art)\b.*\b(generate|create|make|draw|edit|update|modify|change|turn|render)\b/i.test(
-    text
-  );
+  [
+    /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
+    /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
+    /\b(make|create|generate|draw|render|design|paint|illustrate)\s+me\s+(a|an|some)?\s*(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)?\s*(of|for)?\b/i,
+    /\b(edit|update|modify|change|transform|turn)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration|this)\b/i,
+  ].some((pattern) => pattern.test(text));
+
+const isWebSearchRequest = (text = "") =>
+  /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
 
 const buildPollinationsUrl = (prompt) => {
   const params = new URLSearchParams({
@@ -61,6 +68,83 @@ const buildPollinationsUrl = (prompt) => {
   });
 
   return `${POLLINATIONS_IMAGE_BASE}${encodeURIComponent(prompt)}?${params.toString()}`;
+};
+
+const stripTags = (value = "") =>
+  value
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const decodeDuckUrl = (value = "") => {
+  const cleaned = value.replace(/^\/\//, "https://");
+  try {
+    const url = new URL(cleaned);
+    const uddg = url.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : cleaned;
+  } catch {
+    return cleaned;
+  }
+};
+
+const performWebSearch = async (query) => {
+  const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const response = await fetch(searchUrl, {
+    headers: {
+      "User-Agent": "XirAI/1.0",
+    },
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const html = await response.text();
+  const blocks = html.match(/<div class="result[\s\S]*?<\/div>\s*<\/div>/g) || [];
+
+  return blocks
+    .map((block) => {
+      const titleMatch = block.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>|class="result__snippet"[^>]*>([\s\S]*?)<\/div>/);
+
+      if (!titleMatch) {
+        return null;
+      }
+
+      return {
+        title: stripTags(titleMatch[2]),
+        url: decodeDuckUrl(titleMatch[1]),
+        snippet: stripTags(snippetMatch?.[1] || snippetMatch?.[2] || ""),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+};
+
+const verifySignedIn = async (request, env) => {
+  const authHeader = request.headers.get("Authorization") || "";
+  const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1];
+
+  if (!token) {
+    return false;
+  }
+
+  const supabaseUrl = env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const supabaseAnonKey = env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return response.ok;
 };
 
 export async function onRequestPost(context) {
@@ -77,7 +161,14 @@ export async function onRequestPost(context) {
   }
 
   const latestUserMessage = getLatestUserMessage(incomingMessages);
-  if (latestUserMessage && isImageRequest(latestUserMessage.content)) {
+  const hasImages = incomingMessages.some((message) => message.attachments?.length);
+  const wantsImage = latestUserMessage && isImageRequest(latestUserMessage.content);
+
+  if ((wantsImage || hasImages) && !(await verifySignedIn(context.request, context.env))) {
+    return json({ error: "Sign in with Xirako to use image features." }, { status: 401 });
+  }
+
+  if (latestUserMessage && wantsImage) {
     const attachmentNote = latestUserMessage.attachments?.length
       ? "Use the uploaded image as visual reference for the requested edit/update. "
       : "";
@@ -101,16 +192,27 @@ export async function onRequestPost(context) {
     return json({ error: "Missing GROQ_API_KEY Cloudflare secret." }, { status: 500 });
   }
 
-  const hasImages = incomingMessages.some((message) => message.attachments?.length);
   const model = hasImages
     ? context.env.GROQ_VISION_MODEL || DEFAULT_VISION_MODEL
     : context.env.GROQ_TEXT_MODEL || DEFAULT_TEXT_MODEL;
+
+  let searchResults = [];
+  if (latestUserMessage && isWebSearchRequest(latestUserMessage.content)) {
+    searchResults = await performWebSearch(latestUserMessage.content).catch(() => []);
+  }
+
+  const searchContext = searchResults.length
+    ? `\n\nWeb search results from ${new Date().toISOString()}:\n${searchResults
+        .map((result, index) => `${index + 1}. ${result.title}\n${result.url}\n${result.snippet}`)
+        .join("\n\n")}\n\nUse these results when relevant and include source links.`
+    : "";
 
   const messages = [
     {
       role: "system",
       content:
-        "You are XirAI, an intelligent AI assistant created by Xirako. Be helpful, concise, creative, and precise. Use markdown when it makes the answer easier to scan.",
+        "You are XirAI, an AI assistant created by Xirako. Answer like ChatGPT: natural, direct, and conversational. Do not begin answers with labels like 'Xirako:' and do not introduce Xirako unless the user asks. Use concise paragraphs by default, bullets only when they improve clarity, and markdown when it helps scanning." +
+        searchContext,
     },
     ...incomingMessages.map((message) => ({
       role: message.role === "assistant" ? "assistant" : "user",
