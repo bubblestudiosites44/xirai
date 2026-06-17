@@ -80,6 +80,9 @@ const isImageRequest = (text = "") =>
     /\b(edit|update|modify|change|transform|turn)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration|this)\b/i,
   ].some((pattern) => pattern.test(text));
 
+const isWebSearchRequest = (text = "") =>
+  /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
+
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 export default function Home() {
@@ -180,6 +183,7 @@ export default function Home() {
 
   const sendMessage = async (content, attachments = []) => {
     const wantsImage = isImageRequest(content);
+    const wantsWebSearch = isWebSearchRequest(content);
     const usesImageFeature = wantsImage || attachments.length > 0;
 
     if (!isAuthenticated && usesImageFeature) {
@@ -303,6 +307,7 @@ export default function Home() {
       content: "",
       isStreaming: true,
       isGeneratingImage: wantsImage,
+      isSearchingWeb: wantsWebSearch,
       created_date: new Date().toISOString(),
     };
     addAssistantMessage(currentConvId, assistantMsg);
@@ -358,12 +363,14 @@ export default function Home() {
         content: responseContent || "Sorry, I couldn't get a response.",
         isStreaming: false,
         isGeneratingImage: false,
+        isSearchingWeb: false,
       });
     } catch (err) {
       updateAssistantMessage(currentConvId, assistantMsg.id, {
         content: `I hit an API issue: ${err.message}`,
         isStreaming: false,
         isGeneratingImage: false,
+        isSearchingWeb: false,
       });
     } finally {
       setIsLoading(false);

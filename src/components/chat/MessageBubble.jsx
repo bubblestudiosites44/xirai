@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Check, Clipboard, Sparkles, User } from "lucide-react";
+import { Check, Clipboard, Search, Sparkles, User } from "lucide-react";
 
 function CodeBlock({ className = "", children }) {
   const [copied, setCopied] = useState(false);
@@ -37,14 +37,52 @@ function CodeBlock({ className = "", children }) {
 
 function ImageGenerationAnimation() {
   return (
-    <div className="min-h-40 overflow-hidden rounded-2xl border border-primary/20 bg-black/25 p-4">
-      <div className="relative h-36 rounded-xl border border-white/10 bg-[radial-gradient(circle_at_30%_30%,rgba(45,245,197,0.34),transparent_34%),radial-gradient(circle_at_72%_68%,rgba(70,190,255,0.28),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.01))]">
-        <div className="absolute inset-y-0 left-[-35%] w-1/3 rotate-12 bg-white/20 blur-2xl animate-[image-scan_2.6s_ease-in-out_infinite]" />
-        <div className="absolute left-6 top-6 h-12 w-12 animate-pulse rounded-full border border-primary/30 bg-primary/20" />
-        <div className="absolute bottom-5 right-6 h-16 w-24 animate-pulse rounded-[1.4rem] border border-cyan-200/20 bg-cyan-200/10 [animation-delay:500ms]" />
+    <div className="overflow-hidden rounded-[1.65rem] border border-primary/20 bg-black/30 p-4 shadow-2xl shadow-primary/5">
+      <div className="relative aspect-[16/9] overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#061010]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_24%,rgba(45,245,197,0.32),transparent_24%),radial-gradient(circle_at_78%_68%,rgba(67,191,255,0.25),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.09),rgba(255,255,255,0.015))]" />
+        <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,.055)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.045)_1px,transparent_1px)] [background-size:28px_28px]" />
+        <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/25 bg-primary/10 shadow-[0_0_70px_rgba(45,245,197,0.28)] animate-[image-orbit_4s_ease-in-out_infinite]" />
+        <div className="absolute bottom-8 left-10 h-24 w-40 rounded-[2rem] border border-white/10 bg-white/[0.055] blur-[0.2px] animate-[image-float_3.2s_ease-in-out_infinite]" />
+        <div className="absolute right-10 top-8 h-20 w-32 rounded-[1.6rem] border border-cyan-200/20 bg-cyan-200/10 animate-[image-float_3.8s_ease-in-out_infinite_reverse]" />
+        <div className="absolute inset-y-[-20%] left-[-45%] w-1/4 rotate-12 bg-gradient-to-r from-transparent via-white/28 to-transparent blur-xl animate-[image-scan_2.8s_ease-in-out_infinite]" />
+        <div className="absolute bottom-4 left-4 right-4 h-1 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-1/2 rounded-full bg-primary shadow-[0_0_18px_rgba(45,245,197,0.55)] animate-[image-progress_3.4s_ease-in-out_infinite]" />
+        </div>
       </div>
-      <p className="mt-3 text-sm font-medium text-foreground">Making your image...</p>
-      <p className="mt-1 text-xs text-muted-foreground">This usually takes a few seconds.</p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Making your image...</p>
+          <p className="mt-1 text-xs text-muted-foreground">Painting the scene and polishing details.</p>
+        </div>
+        <Sparkles className="h-5 w-5 animate-pulse text-primary" />
+      </div>
+    </div>
+  );
+}
+
+function WebSearchAnimation() {
+  return (
+    <div className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/25 p-4">
+      <div className="flex items-center gap-3">
+        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-primary/10">
+          <Search className="h-5 w-5 text-primary" />
+          <span className="absolute inset-0 rounded-full border border-primary/30 animate-[search-ping_1.8s_ease-out_infinite]" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Searching the web...</p>
+          <p className="mt-1 text-xs text-muted-foreground">Checking current sources before answering.</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2">
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="overflow-hidden rounded-full border border-white/10 bg-white/[0.035] p-2">
+            <div
+              className="h-2 rounded-full bg-gradient-to-r from-primary/20 via-primary/60 to-primary/20 animate-[search-shimmer_1.45s_ease-in-out_infinite]"
+              style={{ animationDelay: `${index * 140}ms` }}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -83,6 +121,8 @@ export default function MessageBubble({ message }) {
           <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
         ) : message.isGeneratingImage ? (
           <ImageGenerationAnimation />
+        ) : message.isSearchingWeb && !message.content ? (
+          <WebSearchAnimation />
         ) : message.isStreaming && !message.content ? (
           <div className="flex items-center gap-1 py-1">
             <span className="h-2 w-2 animate-bounce rounded-full bg-primary/70" />
