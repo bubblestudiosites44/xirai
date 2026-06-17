@@ -1,6 +1,39 @@
-import React from "react";
+import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Sparkles, User } from "lucide-react";
+import { Check, Clipboard, Sparkles, User } from "lucide-react";
+
+function CodeBlock({ className = "", children }) {
+  const [copied, setCopied] = useState(false);
+  const code = String(children).replace(/\n$/, "");
+  const language = className.match(/language-(\w+)/)?.[1] || "code";
+
+  const copyCode = async () => {
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
+
+  return (
+    <div className="my-3 overflow-hidden rounded-2xl border border-white/10 bg-[#050909] shadow-lg shadow-black/20">
+      <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.035] px-4 py-2">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {language}
+        </span>
+        <button
+          type="button"
+          onClick={copyCode}
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold text-muted-foreground transition hover:bg-white/[0.08] hover:text-foreground"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Clipboard className="h-3.5 w-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed text-white/88">
+        <code className={className}>{code}</code>
+      </pre>
+    </div>
+  );
+}
 
 export default function MessageBubble({ message }) {
   const isUser = message.role === "user";
@@ -8,20 +41,17 @@ export default function MessageBubble({ message }) {
   return (
     <div className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0 mt-0.5">
-          <Sparkles className="w-4 h-4 text-primary" />
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/15">
+          <Sparkles className="h-4 w-4 text-primary" />
         </div>
       )}
 
       <div
-        className={`
-          max-w-[82%] rounded-2xl px-4 py-3 shadow-lg shadow-black/10
-          ${
-            isUser
-              ? "bg-primary/15 border border-primary/20 text-foreground"
-              : "bg-card/90 border border-white/10 text-foreground backdrop-blur-xl"
-          }
-        `}
+        className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-lg shadow-black/10 ${
+          isUser
+            ? "border border-primary/20 bg-primary/15 text-foreground"
+            : "border border-white/10 bg-card/90 text-foreground backdrop-blur-xl"
+        }`}
       >
         {message.attachments?.length > 0 && (
           <div className="mb-3 grid grid-cols-2 gap-2">
@@ -36,18 +66,33 @@ export default function MessageBubble({ message }) {
           </div>
         )}
         {isUser ? (
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
         ) : (
           <ReactMarkdown
-            className="text-sm prose prose-sm prose-invert max-w-none
-              prose-p:leading-relaxed prose-p:my-1.5
-              prose-headings:text-foreground prose-headings:font-display
-              prose-strong:text-primary prose-strong:font-semibold
-              prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-              prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-pre:rounded-xl
+            components={{
+              code({ children, ...props }) {
+                return (
+                  <code
+                    className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              },
+              pre({ children }) {
+                const codeElement = Array.isArray(children) ? children[0] : children;
+                const className = codeElement?.props?.className || "";
+                const codeChildren = codeElement?.props?.children || "";
+                return <CodeBlock className={className}>{codeChildren}</CodeBlock>;
+              },
+            }}
+            className="prose prose-sm prose-invert max-w-none text-sm
+              prose-p:my-1.5 prose-p:leading-relaxed
+              prose-headings:font-heading prose-headings:text-foreground
+              prose-strong:font-semibold prose-strong:text-primary
               prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-              prose-li:my-0.5
-              prose-ul:my-2 prose-ol:my-2"
+              prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2"
           >
             {message.content}
           </ReactMarkdown>
@@ -55,8 +100,8 @@ export default function MessageBubble({ message }) {
       </div>
 
       {isUser && (
-        <div className="w-8 h-8 rounded-lg bg-muted border border-border flex items-center justify-center shrink-0 mt-0.5">
-          <User className="w-4 h-4 text-muted-foreground" />
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted">
+          <User className="h-4 w-4 text-muted-foreground" />
         </div>
       )}
     </div>

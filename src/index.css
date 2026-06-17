@@ -99,6 +99,34 @@
   }
 }
 
+@layer utilities {
+  .xirako-app-frame {
+    border: 0 solid transparent;
+    background:
+      radial-gradient(circle at 24% 24%, rgba(19, 134, 86, 0.2) 0%, transparent 38%),
+      radial-gradient(circle at 78% 24%, rgba(72, 206, 215, 0.14) 0%, transparent 34%),
+      linear-gradient(164deg, rgba(2, 3, 4, 0.98) 0%, rgba(3, 8, 9, 0.98) 48%, rgba(3, 6, 7, 0.98) 100%);
+    box-shadow: 0 34px 110px rgba(0, 0, 0, 0.56);
+  }
+
+  @media (min-width: 640px) {
+    .xirako-app-frame {
+      border: 8px solid rgba(240, 248, 246, 0.95);
+      border-radius: clamp(1.85rem, 3vw, 2.8rem);
+    }
+
+    .xirako-app-frame::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      z-index: 1;
+      pointer-events: none;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: inherit;
+    }
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

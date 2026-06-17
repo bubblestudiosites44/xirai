@@ -14,7 +14,7 @@ const readFileAsDataUrl = (file) =>
     reader.readAsDataURL(file);
   });
 
-export default function ChatInput({ onSend, isLoading }) {
+export default function ChatInput({ onSend, isLoading, isLimited = false }) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [fileError, setFileError] = useState("");
@@ -66,7 +66,7 @@ export default function ChatInput({ onSend, isLoading }) {
   };
 
   const handleSubmit = () => {
-    if ((!value.trim() && attachments.length === 0) || isLoading) {
+    if ((!value.trim() && attachments.length === 0) || isLoading || isLimited) {
       return;
     }
 
@@ -115,7 +115,7 @@ export default function ChatInput({ onSend, isLoading }) {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isLoading || attachments.length >= MAX_IMAGES}
+          disabled={isLoading || isLimited || attachments.length >= MAX_IMAGES}
           className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Upload images"
           title="Upload images"
@@ -132,15 +132,16 @@ export default function ChatInput({ onSend, isLoading }) {
               handleSubmit();
             }
           }}
-          placeholder="Message XirAI..."
+          placeholder={isLimited ? "Sign in with Xirako to keep chatting..." : "Message XirAI..."}
           rows={1}
+          disabled={isLimited}
           className="max-h-[180px] flex-1 resize-none bg-transparent px-2 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
         <button
           onClick={handleSubmit}
-          disabled={(!value.trim() && attachments.length === 0) || isLoading}
+          disabled={(!value.trim() && attachments.length === 0) || isLoading || isLimited}
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200 ${
-            (value.trim() || attachments.length > 0) && !isLoading
+            (value.trim() || attachments.length > 0) && !isLoading && !isLimited
               ? "scale-100 bg-primary text-primary-foreground hover:brightness-110"
               : "scale-95 cursor-not-allowed bg-muted text-muted-foreground"
           }`}

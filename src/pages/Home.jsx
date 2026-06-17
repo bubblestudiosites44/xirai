@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Menu } from "lucide-react";
+import { AlertCircle, Menu } from "lucide-react";
 import Sidebar from "@/components/chat/Sidebar";
 import MessageBubble from "@/components/chat/MessageBubble";
 import ChatInput from "@/components/chat/ChatInput";
@@ -9,6 +9,8 @@ import GlowOrbs from "@/components/chat/GlowOrbs";
 import { useAuth } from "@/lib/AuthContext";
 
 const STORAGE_KEY = "xirai.chat.v1";
+const ANON_USAGE_KEY = "xirai.anon.messages.v1";
+const ANON_MESSAGE_LIMIT = 20;
 
 const makeId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -43,8 +45,12 @@ export default function Home() {
   const [activeId, setActiveId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [anonymousUsage, setAnonymousUsage] = useState(() => {
+    const stored = Number(localStorage.getItem(ANON_USAGE_KEY));
+    return Number.isFinite(stored) ? stored : 0;
+  });
   const messagesEndRef = useRef(null);
-  const { user, logout, navigateToLogin } = useAuth();
+  const { user, isAuthenticated, logout, navigateToLogin } = useAuth();
 
   const conversations = store.conversations;
   const messages = useMemo(
@@ -55,6 +61,10 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   }, [store]);
+
+  useEffect(() => {
+    localStorage.setItem(ANON_USAGE_KEY, String(anonymousUsage));
+  }, [anonymousUsage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -108,7 +118,51 @@ export default function Home() {
     }));
   };
 
+  const addAssistantMessage = (conversationId, message) => {
+    patchStore((current) => ({
+      messagesByConversation: {
+        ...current.messagesByConversation,
+        [conversationId]: [...(current.messagesByConversation[conversationId] || []), message],
+      },
+    }));
+  };
+
   const sendMessage = async (content, attachments = []) => {
+    if (!isAuthenticated && anonymousUsage >= ANON_MESSAGE_LIMIT) {
+      const now = new Date().toISOString();
+      const currentConvId = activeId || makeId();
+      const limitMessage = {
+        id: makeId(),
+        conversation_id: currentConvId,
+        role: "assistant",
+        content:
+          "You've used the 20 free XirAI messages for guests. Sign in with Xirako to keep chatting.",
+        created_date: now,
+      };
+
+      patchStore((current) => {
+        const hasConversation = current.conversations.some((conv) => conv.id === currentConvId);
+        return {
+          conversations: hasConversation
+            ? current.conversations
+            : [
+                {
+                  id: currentConvId,
+                  title: "Guest limit reached",
+                  created_date: now,
+                },
+                ...current.conversations,
+              ],
+          messagesByConversation: {
+            ...current.messagesByConversation,
+            [currentConvId]: [...(current.messagesByConversation[currentConvId] || []), limitMessage],
+          },
+        };
+      });
+      setActiveId(currentConvId);
+      return;
+    }
+
     let currentConvId = activeId;
     const now = new Date().toISOString();
 
@@ -147,6 +201,11 @@ export default function Home() {
         [currentConvId]: nextMessages,
       },
     }));
+
+    if (!isAuthenticated) {
+      setAnonymousUsage((usage) => Math.min(usage + 1, ANON_MESSAGE_LIMIT));
+    }
+
     setIsLoading(true);
 
     try {
@@ -166,100 +225,102 @@ export default function Home() {
       }
 
       const data = await res.json();
-      const aiMsg = {
+      addAssistantMessage(currentConvId, {
         id: makeId(),
         conversation_id: currentConvId,
         role: "assistant",
         content: data.content || "Sorry, I couldn't get a response.",
         created_date: new Date().toISOString(),
-      };
-
-      patchStore((current) => ({
-        messagesByConversation: {
-          ...current.messagesByConversation,
-          [currentConvId]: [...(current.messagesByConversation[currentConvId] || []), aiMsg],
-        },
-      }));
+      });
     } catch (err) {
-      const errorMsg = {
+      addAssistantMessage(currentConvId, {
         id: makeId(),
         conversation_id: currentConvId,
         role: "assistant",
         content: `I hit an API issue: ${err.message}`,
         created_date: new Date().toISOString(),
-      };
-
-      patchStore((current) => ({
-        messagesByConversation: {
-          ...current.messagesByConversation,
-          [currentConvId]: [...(current.messagesByConversation[currentConvId] || []), errorMsg],
-        },
-      }));
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="relative flex h-screen w-full overflow-hidden bg-background">
-      <GlowOrbs />
+    <div className="relative min-h-screen w-full overflow-hidden bg-background p-0 sm:p-4 lg:p-7">
+      <div className="xirako-app-frame texture-grain relative mx-auto flex h-screen w-full max-w-[100rem] overflow-hidden sm:h-[calc(100vh-2rem)] lg:h-[calc(100vh-3.5rem)]">
+        <GlowOrbs />
 
-      <Sidebar
-        conversations={conversations}
-        activeId={activeId}
-        onSelect={setActiveId}
-        onCreate={createConversation}
-        onDelete={deleteConversation}
-        onRename={renameConversation}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        user={user}
-        onLogout={logout}
-        onLogin={navigateToLogin}
-      />
+        <Sidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onCreate={createConversation}
+          onDelete={deleteConversation}
+          onRename={renameConversation}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          user={user}
+          onLogout={logout}
+          onLogin={navigateToLogin}
+          anonymousUsage={anonymousUsage}
+          anonymousLimit={ANON_MESSAGE_LIMIT}
+        />
 
-      <main className="relative flex min-w-0 flex-1 flex-col">
-        <div className="z-10 flex items-center gap-3 border-b border-white/10 bg-black/35 px-4 py-3 backdrop-blur-xl">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="rounded-full border border-white/10 bg-white/[0.04] p-2 text-foreground transition hover:bg-white/[0.09] md:hidden"
-            aria-label="Open sidebar"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <div className="min-w-0">
-            <h2 className="truncate font-heading text-sm font-semibold text-foreground">
+        <main className="relative z-10 flex min-w-0 flex-1 flex-col">
+          <div className="z-10 flex min-h-[4.35rem] items-center gap-3 border-b border-white/10 bg-black/25 px-4 py-3 backdrop-blur-xl">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="rounded-full border border-white/10 bg-white/[0.04] p-2 text-foreground transition hover:bg-white/[0.09] md:hidden"
+              aria-label="Open sidebar"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <h2 className="min-w-0 truncate font-heading text-sm font-semibold text-foreground">
               {activeId ? conversations.find((c) => c.id === activeId)?.title || "Chat" : "XirAI"}
             </h2>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              ai.xirako.com
-            </p>
           </div>
-        </div>
 
-        {!activeId && messages.length === 0 ? (
-          <WelcomeScreen onSuggestion={sendMessage} />
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
-              {isLoading && <TypingIndicator />}
-              <div ref={messagesEndRef} />
+          {!activeId && messages.length === 0 ? (
+            <WelcomeScreen onSuggestion={sendMessage} />
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+                {isLoading && <TypingIndicator />}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-white/10 bg-black/25 p-4 backdrop-blur-xl">
+            <div className="mx-auto max-w-3xl">
+              {!isAuthenticated && (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-2">
+                    <AlertCircle className="h-3.5 w-3.5 text-primary" />
+                    Guest messages: {anonymousUsage}/{ANON_MESSAGE_LIMIT}
+                  </span>
+                  {anonymousUsage >= ANON_MESSAGE_LIMIT && (
+                    <button className="font-semibold text-primary" onClick={navigateToLogin}>
+                      Sign in
+                    </button>
+                  )}
+                </div>
+              )}
+              <ChatInput
+                onSend={sendMessage}
+                isLoading={isLoading}
+                isLimited={!isAuthenticated && anonymousUsage >= ANON_MESSAGE_LIMIT}
+              />
+              <p className="mt-2.5 text-center text-[10px] font-medium tracking-wide text-muted-foreground">
+                XirAI can make mistakes. Check important info.
+              </p>
             </div>
           </div>
-        )}
-
-        <div className="border-t border-white/10 bg-black/35 p-4 backdrop-blur-xl">
-          <div className="mx-auto max-w-3xl">
-            <ChatInput onSend={sendMessage} isLoading={isLoading} />
-            <p className="mt-2.5 text-center text-[10px] font-medium tracking-wide text-muted-foreground">
-              XirAI can make mistakes. Check important info.
-            </p>
-          </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
