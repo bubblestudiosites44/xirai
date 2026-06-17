@@ -103,7 +103,7 @@ export default function ChatInput({ onSend, isLoading, isLimited = false }) {
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-[1.35rem] border border-white/10 bg-card/90 p-2 shadow-2xl shadow-black/25 backdrop-blur-xl">
+      <div className="flex items-end gap-2 rounded-full border border-white/10 bg-card/90 p-2 shadow-2xl shadow-black/25 backdrop-blur-xl">
         <input
           ref={fileInputRef}
           type="file"
@@ -116,7 +116,7 @@ export default function ChatInput({ onSend, isLoading, isLimited = false }) {
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isLoading || isLimited || attachments.length >= MAX_IMAGES}
-          className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Upload images"
           title="Upload images"
         >
@@ -140,7 +140,7 @@ export default function ChatInput({ onSend, isLoading, isLimited = false }) {
         <button
           onClick={handleSubmit}
           disabled={(!value.trim() && attachments.length === 0) || isLoading || isLimited}
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200 ${
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-200 ${
             (value.trim() || attachments.length > 0) && !isLoading && !isLimited
               ? "scale-100 bg-primary text-primary-foreground hover:brightness-110"
               : "scale-95 cursor-not-allowed bg-muted text-muted-foreground"

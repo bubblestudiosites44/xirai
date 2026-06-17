@@ -37,13 +37,13 @@ export default function Sidebar({
       {isOpen && <div className="fixed inset-0 z-30 bg-black/60 md:hidden" onClick={onClose} />}
 
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-full w-72 flex-col border-r border-white/10 bg-black/48 backdrop-blur-2xl transition-transform duration-300 ease-out md:relative ${
+        className={`fixed left-0 top-0 z-40 flex h-full w-80 flex-col border-r border-white/10 bg-black/48 backdrop-blur-2xl transition-transform duration-300 ease-out md:relative ${
           isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
-        <div className="border-b border-white/10 p-5">
-          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.035] p-2">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/30">
+        <div className="border-b border-white/10 p-4">
+          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.045] p-2 shadow-2xl shadow-black/20">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/35 shadow-lg shadow-primary/10">
               <img src="/favicon.png" alt="Xirako" className="h-8 w-8 object-contain" />
             </div>
             <div className="min-w-0">
@@ -73,20 +73,20 @@ export default function Sidebar({
             {conversations.map((conv) => (
               <div
                 key={conv.id}
-                className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-all duration-150 ${
+                className={`group grid cursor-pointer grid-cols-[1rem_minmax(0,1fr)_4.75rem] items-center gap-2 rounded-2xl px-3 py-2.5 text-sm transition-all duration-150 ${
                   activeId === conv.id
-                    ? "bg-white/[0.08] text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-white/[0.05] hover:text-sidebar-foreground"
+                    ? "border border-white/10 bg-white/[0.08] text-sidebar-accent-foreground shadow-lg shadow-black/10"
+                    : "border border-transparent text-muted-foreground hover:border-white/10 hover:bg-white/[0.05] hover:text-sidebar-foreground"
                 }`}
                 onClick={() => {
                   onSelect(conv.id);
                   onClose();
                 }}
               >
-                <MessageSquare className="h-4 w-4 shrink-0 opacity-60" />
+                <MessageSquare className="h-4 w-4 opacity-60" />
 
                 {editingId === conv.id ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <div className="col-span-2 flex min-w-0 items-center gap-1">
                     <input
                       className="min-w-0 flex-1 border-b border-primary/40 bg-transparent text-sm text-foreground outline-none"
                       value={editTitle}
@@ -121,14 +121,14 @@ export default function Sidebar({
                   </div>
                 ) : (
                   <>
-                    <span className="min-w-0 flex-1 truncate pr-1">{conv.title}</span>
-                    <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100">
+                    <span className="min-w-0 truncate pr-1">{conv.title}</span>
+                    <div className="flex shrink-0 items-center justify-end gap-1">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           startEdit(conv);
                         }}
-                        className="rounded-md p-1 hover:bg-white/10"
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.045] text-muted-foreground hover:bg-white/10 hover:text-foreground"
                         aria-label="Rename chat"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -138,7 +138,7 @@ export default function Sidebar({
                           e.stopPropagation();
                           onDelete(conv.id);
                         }}
-                        className="rounded-md p-1 hover:bg-destructive/20 hover:text-destructive"
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.045] text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
                         aria-label="Delete chat"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

@@ -47,7 +47,7 @@ export default function MessageBubble({ message }) {
       )}
 
       <div
-        className={`min-w-0 rounded-2xl px-4 py-3 shadow-lg shadow-black/10 ${
+        className={`min-w-0 rounded-[1.35rem] px-4 py-3 shadow-lg shadow-black/10 ${
           isUser
             ? "max-w-[78%] border border-primary/20 bg-primary/15 text-foreground"
             : "w-full max-w-full border border-white/10 bg-card/90 text-foreground backdrop-blur-xl"
