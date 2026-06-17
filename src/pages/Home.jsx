@@ -4,7 +4,6 @@ import Sidebar from "@/components/chat/Sidebar";
 import MessageBubble from "@/components/chat/MessageBubble";
 import ChatInput from "@/components/chat/ChatInput";
 import WelcomeScreen from "@/components/chat/WelcomeScreen";
-import TypingIndicator from "@/components/chat/TypingIndicator";
 import GlowOrbs from "@/components/chat/GlowOrbs";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -25,9 +24,21 @@ const loadStoredChats = () => {
     }
 
     const parsed = JSON.parse(stored);
+    const messagesByConversation = Object.fromEntries(
+      Object.entries(parsed.messagesByConversation || {}).map(([conversationId, messages]) => [
+        conversationId,
+        Array.isArray(messages)
+          ? messages.map((message) => ({
+              ...message,
+              isStreaming: false,
+            }))
+          : [],
+      ])
+    );
+
     return {
       conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
-      messagesByConversation: parsed.messagesByConversation || {},
+      messagesByConversation,
     };
   } catch {
     return { conversations: [], messagesByConversation: {} };
@@ -122,6 +133,17 @@ export default function Home() {
     }));
   };
 
+  const updateAssistantMessage = (conversationId, messageId, updates) => {
+    patchStore((current) => ({
+      messagesByConversation: {
+        ...current.messagesByConversation,
+        [conversationId]: (current.messagesByConversation[conversationId] || []).map((message) =>
+          message.id === messageId ? { ...message, ...updates } : message
+        ),
+      },
+    }));
+  };
+
   const sendMessage = async (content, attachments = []) => {
     if (!isAuthenticated && anonymousUsage >= ANON_MESSAGE_LIMIT) {
       const now = new Date().toISOString();
@@ -203,6 +225,16 @@ export default function Home() {
 
     setIsLoading(true);
 
+    const assistantMsg = {
+      id: makeId(),
+      conversation_id: currentConvId,
+      role: "assistant",
+      content: "",
+      isStreaming: true,
+      created_date: new Date().toISOString(),
+    };
+    addAssistantMessage(currentConvId, assistantMsg);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -219,21 +251,36 @@ export default function Home() {
         throw new Error(errorData.error || "XirAI could not reach Groq.");
       }
 
-      const data = await res.json();
-      addAssistantMessage(currentConvId, {
-        id: makeId(),
-        conversation_id: currentConvId,
-        role: "assistant",
-        content: data.content || "Sorry, I couldn't get a response.",
-        created_date: new Date().toISOString(),
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error("The response stream was unavailable.");
+      }
+
+      const decoder = new TextDecoder();
+      let responseContent = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        responseContent += decoder.decode(value, { stream: true });
+        updateAssistantMessage(currentConvId, assistantMsg.id, {
+          content: responseContent,
+          isStreaming: true,
+        });
+      }
+
+      responseContent += decoder.decode();
+      updateAssistantMessage(currentConvId, assistantMsg.id, {
+        content: responseContent || "Sorry, I couldn't get a response.",
+        isStreaming: false,
       });
     } catch (err) {
-      addAssistantMessage(currentConvId, {
-        id: makeId(),
-        conversation_id: currentConvId,
-        role: "assistant",
+      updateAssistantMessage(currentConvId, assistantMsg.id, {
         content: `I hit an API issue: ${err.message}`,
-        created_date: new Date().toISOString(),
+        isStreaming: false,
       });
     } finally {
       setIsLoading(false);
@@ -280,7 +327,6 @@ export default function Home() {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} />
               ))}
-              {isLoading && <TypingIndicator />}
             </div>
           </div>
         )}

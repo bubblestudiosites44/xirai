@@ -67,46 +67,57 @@ export default function MessageBubble({ message }) {
         )}
         {isUser ? (
           <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+        ) : message.isStreaming && !message.content ? (
+          <div className="flex items-center gap-1 py-1">
+            <span className="h-2 w-2 animate-bounce rounded-full bg-primary/70" />
+            <span className="h-2 w-2 animate-bounce rounded-full bg-primary/60 [animation-delay:120ms]" />
+            <span className="h-2 w-2 animate-bounce rounded-full bg-primary/50 [animation-delay:240ms]" />
+          </div>
         ) : (
-          <ReactMarkdown
-            components={{
-              code({ children, ...props }) {
-                return (
-                  <code
-                    className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
-                    {...props}
-                  >
-                    {children}
-                  </code>
-                );
-              },
-              pre({ children }) {
-                const codeElement = Array.isArray(children) ? children[0] : children;
-                const className = codeElement?.props?.className || "";
-                const codeChildren = codeElement?.props?.children || "";
-                return <CodeBlock className={className}>{codeChildren}</CodeBlock>;
-              },
-              img({ src, alt }) {
-                return (
-                  <a href={src} target="_blank" rel="noreferrer">
-                    <img
-                      src={src}
-                      alt={alt || "Generated image"}
-                      className="my-3 max-h-[34rem] w-full rounded-2xl border border-white/10 object-contain"
-                    />
-                  </a>
-                );
-              },
-            }}
-            className="prose prose-sm prose-invert max-w-none text-sm
-              prose-p:my-1.5 prose-p:leading-relaxed
-              prose-headings:font-heading prose-headings:text-foreground
-              prose-strong:font-semibold prose-strong:text-primary
-              prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-              prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2"
-          >
-            {message.content}
-          </ReactMarkdown>
+          <>
+            <ReactMarkdown
+              components={{
+                code({ children, ...props }) {
+                  return (
+                    <code
+                      className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  );
+                },
+                pre({ children }) {
+                  const codeElement = Array.isArray(children) ? children[0] : children;
+                  const className = codeElement?.props?.className || "";
+                  const codeChildren = codeElement?.props?.children || "";
+                  return <CodeBlock className={className}>{codeChildren}</CodeBlock>;
+                },
+                img({ src, alt }) {
+                  return (
+                    <a href={src} target="_blank" rel="noreferrer">
+                      <img
+                        src={src}
+                        alt={alt || "Generated image"}
+                        className="my-3 max-h-[34rem] w-full rounded-2xl border border-white/10 object-contain"
+                      />
+                    </a>
+                  );
+                },
+              }}
+              className="prose prose-sm prose-invert max-w-none text-sm
+                prose-p:my-1.5 prose-p:leading-relaxed
+                prose-headings:font-heading prose-headings:text-foreground
+                prose-strong:font-semibold prose-strong:text-primary
+                prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+                prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2"
+            >
+              {message.content}
+            </ReactMarkdown>
+            {message.isStreaming && (
+              <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-full bg-primary/80" />
+            )}
+          </>
         )}
       </div>
 

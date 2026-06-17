@@ -84,10 +84,15 @@ export async function onRequestPost(context) {
     const prompt = `${attachmentNote}${latestUserMessage.content}`.trim();
     const imageUrl = buildPollinationsUrl(prompt);
 
-    return json({
-      content: `Here is a Pollinations image result for your prompt:\n\n![Generated image](${imageUrl})\n\n[Open full-size image](${imageUrl})`,
-      model: "pollinations.ai/flux",
-    });
+    return new Response(
+      `Here's your image:\n\n![Generated image](${imageUrl})\n\n[Open full-size image](${imageUrl})`,
+      {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      }
+    );
   }
 
   const apiKey = context.env.GROQ_API_KEY;
@@ -124,12 +129,12 @@ export async function onRequestPost(context) {
       messages,
       temperature: 0.6,
       max_completion_tokens: 1024,
+      stream: true,
     }),
   });
 
-  const groqData = await groqResponse.json().catch(() => ({}));
-
   if (!groqResponse.ok) {
+    const groqData = await groqResponse.json().catch(() => ({}));
     return json(
       {
         error: groqData.error?.message || "Groq request failed.",
@@ -138,10 +143,72 @@ export async function onRequestPost(context) {
     );
   }
 
-  return json({
-    content: groqData.choices?.[0]?.message?.content || "",
-    model,
-  });
+  if (!groqResponse.body) {
+    return new Response("", {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    });
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const reader = groqResponse.body.getReader();
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        let buffer = "";
+
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) {
+                continue;
+              }
+
+              const data = trimmed.slice(5).trim();
+              if (!data || data === "[DONE]") {
+                continue;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                const chunk = parsed.choices?.[0]?.delta?.content || "";
+                if (chunk) {
+                  controller.enqueue(encoder.encode(chunk));
+                }
+              } catch {
+                // Ignore malformed stream fragments.
+              }
+            }
+          }
+        } catch (error) {
+          controller.error(error);
+          return;
+        }
+
+        controller.close();
+      },
+    }),
+    {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+      },
+    }
+  );
 }
 
 export function onRequest() {
