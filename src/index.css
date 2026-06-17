@@ -89,6 +89,7 @@
   body {
     @apply bg-background text-foreground font-body;
     min-height: 100vh;
+    overflow: hidden;
     background-image:
       radial-gradient(circle at 15% 20%, rgba(35, 174, 125, 0.28) 0%, transparent 35%),
       radial-gradient(circle at 85% 4%, rgba(84, 228, 236, 0.16) 0%, transparent 30%),
@@ -96,6 +97,11 @@
     background-attachment: fixed;
     text-rendering: geometricPrecision;
     -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    height: 100vh;
+    overflow: hidden;
   }
 }
 

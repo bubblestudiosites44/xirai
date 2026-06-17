@@ -1,5 +1,6 @@
 const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
 
 const json = (body, init = {}) =>
   new Response(JSON.stringify(body), {
@@ -31,13 +32,38 @@ const asGroqContent = (message) => {
   ];
 };
 
-export async function onRequestPost(context) {
-  const apiKey = context.env.GROQ_API_KEY;
-
-  if (!apiKey) {
-    return json({ error: "Missing GROQ_API_KEY Cloudflare secret." }, { status: 500 });
+const getLatestUserMessage = (messages) => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role !== "assistant") {
+      return messages[index];
+    }
   }
 
+  return null;
+};
+
+const isImageRequest = (text = "") =>
+  /\b(generate|create|make|draw|edit|update|modify|change|turn|render)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art)\b/i.test(
+    text
+  ) ||
+  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art)\b.*\b(generate|create|make|draw|edit|update|modify|change|turn|render)\b/i.test(
+    text
+  );
+
+const buildPollinationsUrl = (prompt) => {
+  const params = new URLSearchParams({
+    width: "1024",
+    height: "1024",
+    model: "flux",
+    nologo: "true",
+    enhance: "true",
+    seed: String(Math.floor(Math.random() * 1_000_000)),
+  });
+
+  return `${POLLINATIONS_IMAGE_BASE}${encodeURIComponent(prompt)}?${params.toString()}`;
+};
+
+export async function onRequestPost(context) {
   let body;
   try {
     body = await context.request.json();
@@ -48,6 +74,26 @@ export async function onRequestPost(context) {
   const incomingMessages = Array.isArray(body.messages) ? body.messages.slice(-10) : [];
   if (incomingMessages.length === 0) {
     return json({ error: "No messages provided." }, { status: 400 });
+  }
+
+  const latestUserMessage = getLatestUserMessage(incomingMessages);
+  if (latestUserMessage && isImageRequest(latestUserMessage.content)) {
+    const attachmentNote = latestUserMessage.attachments?.length
+      ? "Use the uploaded image as visual reference for the requested edit/update. "
+      : "";
+    const prompt = `${attachmentNote}${latestUserMessage.content}`.trim();
+    const imageUrl = buildPollinationsUrl(prompt);
+
+    return json({
+      content: `Here is a Pollinations image result for your prompt:\n\n![Generated image](${imageUrl})\n\n[Open full-size image](${imageUrl})`,
+      model: "pollinations.ai/flux",
+    });
+  }
+
+  const apiKey = context.env.GROQ_API_KEY;
+
+  if (!apiKey) {
+    return json({ error: "Missing GROQ_API_KEY Cloudflare secret." }, { status: 500 });
   }
 
   const hasImages = incomingMessages.some((message) => message.attachments?.length);

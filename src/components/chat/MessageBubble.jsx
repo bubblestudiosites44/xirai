@@ -47,10 +47,10 @@ export default function MessageBubble({ message }) {
       )}
 
       <div
-        className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-lg shadow-black/10 ${
+        className={`min-w-0 rounded-2xl px-4 py-3 shadow-lg shadow-black/10 ${
           isUser
-            ? "border border-primary/20 bg-primary/15 text-foreground"
-            : "border border-white/10 bg-card/90 text-foreground backdrop-blur-xl"
+            ? "max-w-[78%] border border-primary/20 bg-primary/15 text-foreground"
+            : "w-full max-w-full border border-white/10 bg-card/90 text-foreground backdrop-blur-xl"
         }`}
       >
         {message.attachments?.length > 0 && (
@@ -85,6 +85,17 @@ export default function MessageBubble({ message }) {
                 const className = codeElement?.props?.className || "";
                 const codeChildren = codeElement?.props?.children || "";
                 return <CodeBlock className={className}>{codeChildren}</CodeBlock>;
+              },
+              img({ src, alt }) {
+                return (
+                  <a href={src} target="_blank" rel="noreferrer">
+                    <img
+                      src={src}
+                      alt={alt || "Generated image"}
+                      className="my-3 max-h-[34rem] w-full rounded-2xl border border-white/10 object-contain"
+                    />
+                  </a>
+                );
               },
             }}
             className="prose prose-sm prose-invert max-w-none text-sm

@@ -16,8 +16,6 @@ export default function Sidebar({
   user,
   onLogout,
   onLogin,
-  anonymousUsage,
-  anonymousLimit,
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -124,7 +122,7 @@ export default function Sidebar({
                 ) : (
                   <>
                     <span className="min-w-0 flex-1 truncate pr-1">{conv.title}</span>
-                    <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -154,12 +152,6 @@ export default function Sidebar({
         </ScrollArea>
 
         <div className="border-t border-white/10 p-3">
-          {!user && typeof anonymousUsage === "number" && (
-            <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 text-[11px] text-muted-foreground">
-              Guest AI messages: {anonymousUsage}/{anonymousLimit}
-            </div>
-          )}
-
           {user ? (
             <div className="flex items-center gap-2.5 rounded-xl px-2 py-2">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/20">
