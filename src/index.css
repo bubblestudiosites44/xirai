@@ -143,47 +143,40 @@
   background-size: 2px 2px, 3px 3px;
 }
 
-@keyframes image-scan {
+@keyframes color-drift {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+    filter: saturate(1);
+  }
+
+  50% {
+    transform: translate3d(2%, 1%, 0) scale(1.04);
+    filter: saturate(1.2);
+  }
+
+  100% {
+    transform: translate3d(4%, -2%, 0) scale(1.08);
+    filter: saturate(1.35);
+  }
+}
+
+@keyframes xirako-sweep {
   0% {
     transform: translateX(0) rotate(12deg);
     opacity: 0;
   }
 
-  20% {
-    opacity: 1;
+  18% {
+    opacity: 0.9;
   }
 
   100% {
-    transform: translateX(520%) rotate(12deg);
+    transform: translateX(560%) rotate(12deg);
     opacity: 0;
   }
 }
 
-@keyframes image-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-
-  50% {
-    transform: translate3d(0, -10px, 0) scale(1.03);
-  }
-}
-
-@keyframes image-orbit {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) scale(0.92);
-    opacity: 0.7;
-  }
-
-  50% {
-    transform: translate(-50%, -50%) scale(1.12);
-    opacity: 1;
-  }
-}
-
-@keyframes image-progress {
+@keyframes soft-progress {
   0% {
     transform: translateX(-110%);
   }

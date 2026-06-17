@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Menu } from "lucide-react";
 import Sidebar from "@/components/chat/Sidebar";
 import MessageBubble from "@/components/chat/MessageBubble";
@@ -91,6 +91,9 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [anonymousUsage, setAnonymousUsage] = useState(loadAnonymousUsage);
+  const messagesViewportRef = useRef(null);
+  const shouldFollowResponseRef = useRef(false);
+  const followConversationRef = useRef(null);
   const { session, user, isAuthenticated, logout, navigateToLogin } = useAuth();
 
   const conversations = store.conversations;
@@ -99,9 +102,34 @@ export default function Home() {
     [activeId, store.messagesByConversation]
   );
 
+  const followResponse = (conversationId) => {
+    shouldFollowResponseRef.current = true;
+    followConversationRef.current = conversationId;
+  };
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   }, [store]);
+
+  useEffect(() => {
+    if (!shouldFollowResponseRef.current || followConversationRef.current !== activeId) {
+      return undefined;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = messagesViewportRef.current;
+      if (!viewport) {
+        return;
+      }
+
+      viewport.scrollTo({
+        top: viewport.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeId, messages]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -197,6 +225,7 @@ export default function Home() {
         created_date: now,
       };
 
+      followResponse(currentConvId);
       patchStore((current) => {
         const hasConversation = current.conversations.some((conv) => conv.id === currentConvId);
         return {
@@ -232,6 +261,7 @@ export default function Home() {
         created_date: now,
       };
 
+      followResponse(currentConvId);
       patchStore((current) => {
         const hasConversation = current.conversations.some((conv) => conv.id === currentConvId);
         return {
@@ -287,6 +317,7 @@ export default function Home() {
 
     const nextMessages = [...(store.messagesByConversation[currentConvId] || []), userMsg];
 
+    followResponse(currentConvId);
     patchStore((current) => ({
       messagesByConversation: {
         ...current.messagesByConversation,
@@ -347,6 +378,7 @@ export default function Home() {
 
         responseContent += decoder.decode(value, { stream: true });
         if (!shouldDelayImage) {
+          followResponse(currentConvId);
           updateAssistantMessage(currentConvId, assistantMsg.id, {
             content: responseContent,
             isStreaming: true,
@@ -359,6 +391,7 @@ export default function Home() {
         const elapsed = Date.now() - startedAt;
         await wait(Math.max(0, IMAGE_GENERATION_MIN_MS - elapsed));
       }
+      followResponse(currentConvId);
       updateAssistantMessage(currentConvId, assistantMsg.id, {
         content: responseContent || "Sorry, I couldn't get a response.",
         isStreaming: false,
@@ -366,6 +399,7 @@ export default function Home() {
         isSearchingWeb: false,
       });
     } catch (err) {
+      followResponse(currentConvId);
       updateAssistantMessage(currentConvId, assistantMsg.id, {
         content: `I hit an API issue: ${err.message}`,
         isStreaming: false,
@@ -374,6 +408,11 @@ export default function Home() {
       });
     } finally {
       setIsLoading(false);
+      window.setTimeout(() => {
+        if (followConversationRef.current === currentConvId) {
+          shouldFollowResponseRef.current = false;
+        }
+      }, 900);
     }
   };
 
@@ -412,7 +451,11 @@ export default function Home() {
         {!activeId && messages.length === 0 ? (
           <WelcomeScreen onSuggestion={sendMessage} />
         ) : (
-          <div key={activeId || "empty-chat"} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div
+            key={activeId || "empty-chat"}
+            ref={messagesViewportRef}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          >
             <div className="mx-auto w-full max-w-6xl space-y-5 px-4 py-6 md:px-8">
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} />
