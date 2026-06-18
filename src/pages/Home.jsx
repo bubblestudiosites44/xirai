@@ -72,13 +72,25 @@ const loadAnonymousUsage = () => {
   }
 };
 
-const isImageRequest = (text = "") =>
+const VISUAL_SUBJECT_PATTERN =
+  /\b(dog|cat|puppy|kitten|animal|bird|horse|fish|dragon|monster|robot|car|truck|vehicle|house|building|room|landscape|mountain|forest|city|planet|space|ship|sword|flower|tree|product|poster|sticker|logo|icon|wallpaper|avatar|mascot|character)\b/i;
+
+const isImageEditRequest = (text = "") =>
+  /\b(make|edit|update|modify|change|transform|turn|add|give|put|remove|replace)\b.*\b(it|this|that|the\s+(image|picture|photo|one)|last\s+(image|picture|photo|one)|previous\s+(image|picture|photo|one))\b/i.test(
+    text
+  );
+
+const isDirectImageCreationRequest = (text = "") =>
   [
     /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
     /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
     /\b(make|create|generate|draw|render|design|paint|illustrate)\s+me\s+(a|an|some)?\s*(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)?\s*(of|for)?\b/i,
-    /\b(edit|update|modify|change|transform|turn)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration|this)\b/i,
-  ].some((pattern) => pattern.test(text));
+    /\b(draw|paint|illustrate|render)\s+(me\s+)?(a|an|the|some)?\s*\w+/i,
+  ].some((pattern) => pattern.test(text)) ||
+  (/\b(make|create|generate|design)\s+(me\s+)?(a|an|the|some)?\s*\w+/i.test(text) &&
+    VISUAL_SUBJECT_PATTERN.test(text));
+
+const isImageRequest = (text = "") => isDirectImageCreationRequest(text) || isImageEditRequest(text);
 
 const isWebSearchRequest = (text = "") =>
   /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
@@ -358,7 +370,7 @@ export default function Home() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "XirAI could not reach Groq.");
+        throw new Error(errorData.error || "XirAI is busy right now. Please try again in a moment.");
       }
 
       const reader = res.body?.getReader();
@@ -401,7 +413,7 @@ export default function Home() {
     } catch (err) {
       followResponse(currentConvId);
       updateAssistantMessage(currentConvId, assistantMsg.id, {
-        content: `I hit an API issue: ${err.message}`,
+        content: err.message || "XirAI hit a temporary issue. Please try again in a moment.",
         isStreaming: false,
         isGeneratingImage: false,
         isSearchingWeb: false,

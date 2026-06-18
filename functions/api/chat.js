@@ -46,13 +46,25 @@ const getLatestUserMessage = (messages) => {
   return null;
 };
 
-const isImageRequest = (text = "") =>
+const VISUAL_SUBJECT_PATTERN =
+  /\b(dog|cat|puppy|kitten|animal|bird|horse|fish|dragon|monster|robot|car|truck|vehicle|house|building|room|landscape|mountain|forest|city|planet|space|ship|sword|flower|tree|product|poster|sticker|logo|icon|wallpaper|avatar|mascot|character)\b/i;
+
+const isImageEditRequest = (text = "") =>
+  /\b(make|edit|update|modify|change|transform|turn|add|give|put|remove|replace)\b.*\b(it|this|that|the\s+(image|picture|photo|one)|last\s+(image|picture|photo|one)|previous\s+(image|picture|photo|one))\b/i.test(
+    text
+  );
+
+const isDirectImageCreationRequest = (text = "") =>
   [
     /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
     /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
     /\b(make|create|generate|draw|render|design|paint|illustrate)\s+me\s+(a|an|some)?\s*(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)?\s*(of|for)?\b/i,
-    /\b(edit|update|modify|change|transform|turn)\b.*\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration|this)\b/i,
-  ].some((pattern) => pattern.test(text));
+    /\b(draw|paint|illustrate|render)\s+(me\s+)?(a|an|the|some)?\s*\w+/i,
+  ].some((pattern) => pattern.test(text)) ||
+  (/\b(make|create|generate|design)\s+(me\s+)?(a|an|the|some)?\s*\w+/i.test(text) &&
+    VISUAL_SUBJECT_PATTERN.test(text));
+
+const isImageRequest = (text = "") => isDirectImageCreationRequest(text) || isImageEditRequest(text);
 
 const isWebSearchRequest = (text = "") =>
   /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
@@ -128,6 +140,46 @@ const buildImagePrompt = (message) => {
   return promptParts.join(" ");
 };
 
+const stripImageEditCommand = (text = "") => {
+  const cleaned = text.replace(/\s+/g, " ").replace(/[.!?]+$/g, "").trim();
+  const addMatch = cleaned.match(
+    /^(?:please\s+)?(?:add|give|put)\s+(.+?)\s+(?:to|on)\s+(?:it|this|that|the\s+(?:image|picture|photo|one)|the\s+last\s+(?:image|picture|photo|one))$/i
+  );
+
+  if (addMatch?.[1]) {
+    return addMatch[1].trim();
+  }
+
+  return cleaned
+    .replace(
+      /^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+|will\s+you\s+)?(?:make|edit|update|modify|change|transform|turn|give|put|add|remove|replace)\s+(?:it|this|that|the\s+(?:image|picture|photo|one)|the\s+last\s+(?:image|picture|photo|one)|the\s+previous\s+(?:image|picture|photo|one))\s*(?:to|into|have|with|so\s+it\s+has|so\s+it\s+is)?\s*/i,
+      ""
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const buildImageEditPrompt = (message, previousPrompt) => {
+  const rawContent = message?.content || "";
+  const requestedChange = stripImageEditCommand(rawContent);
+  const promptParts = [
+    `Start from this previous image concept: ${previousPrompt}`,
+    `Apply this requested change: ${requestedChange}.`,
+    "Keep the same main subject and overall composition. Only change what the user asked to change.",
+    getImageStyleHint(previousPrompt),
+  ];
+
+  if (!explicitlyRequestsPeople(rawContent) && !explicitlyRequestsPeople(previousPrompt)) {
+    promptParts.push(
+      "Do not include people, humans, faces, bodies, portraits, models, or crowds unless the user explicitly asks for them."
+    );
+  }
+
+  promptParts.push("No watermark, no logo overlay, no random text.");
+
+  return promptParts.join(" ");
+};
+
 const buildPollinationsUrl = (prompt) => {
   const params = new URLSearchParams({
     width: "1024",
@@ -139,6 +191,27 @@ const buildPollinationsUrl = (prompt) => {
   });
 
   return `${POLLINATIONS_IMAGE_BASE}${encodeURIComponent(prompt)}?${params.toString()}`;
+};
+
+const getLastGeneratedImagePrompt = (messages) => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const content = messages[index]?.content || "";
+    const match = content.match(/https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+/);
+
+    if (!match) {
+      continue;
+    }
+
+    try {
+      const url = new URL(match[0]);
+      const encodedPrompt = url.pathname.replace(/^\/prompt\//, "");
+      return decodeURIComponent(encodedPrompt);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 };
 
 const stripTags = (value = "") =>
@@ -233,14 +306,21 @@ export async function onRequestPost(context) {
 
   const latestUserMessage = getLatestUserMessage(incomingMessages);
   const hasImages = incomingMessages.some((message) => message.attachments?.length);
-  const wantsImage = latestUserMessage && isImageRequest(latestUserMessage.content);
+  const previousImagePrompt = getLastGeneratedImagePrompt(incomingMessages);
+  const latestText = latestUserMessage?.content || "";
+  const isStartingNewImage = isDirectImageCreationRequest(latestText) && !isImageEditRequest(latestText);
+  const isEditingPreviousImage =
+    Boolean(previousImagePrompt) && isImageEditRequest(latestText) && !isStartingNewImage;
+  const wantsImage = latestUserMessage && (isImageRequest(latestText) || isEditingPreviousImage);
 
   if ((wantsImage || hasImages) && !(await verifySignedIn(context.request, context.env))) {
     return json({ error: "Sign in with Xirako to use image features." }, { status: 401 });
   }
 
   if (latestUserMessage && wantsImage) {
-    const prompt = buildImagePrompt(latestUserMessage);
+    const prompt = isEditingPreviousImage
+      ? buildImageEditPrompt(latestUserMessage, previousImagePrompt)
+      : buildImagePrompt(latestUserMessage);
     const imageUrl = buildPollinationsUrl(prompt);
 
     return new Response(
@@ -304,6 +384,15 @@ export async function onRequestPost(context) {
   });
 
   if (!groqResponse.ok) {
+    if (groqResponse.status === 429) {
+      return json(
+        {
+          error: "XirAI is busy right now. Please try again in a moment.",
+        },
+        { status: 429 }
+      );
+    }
+
     const groqData = await groqResponse.json().catch(() => ({}));
     return json(
       {
