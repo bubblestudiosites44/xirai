@@ -57,13 +57,84 @@ const isImageRequest = (text = "") =>
 const isWebSearchRequest = (text = "") =>
   /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
 
+const stripImageCommand = (text = "") => {
+  const cleaned = text
+    .replace(/\s+/g, " ")
+    .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
+    .trim();
+
+  const withoutCommand = cleaned
+    .replace(
+      /^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+|will\s+you\s+)?(?:make|create|generate|draw|render|design|paint|illustrate)\s+(?:me\s+)?(?:a|an|some)?\s*(?:image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)?\s*(?:of|for|showing|with)?\s*/i,
+      ""
+    )
+    .replace(
+      /^(?:please\s+)?(?:an?|some)?\s*(?:image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\s*(?:of|for|showing|with)?\s*/i,
+      ""
+    )
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .trim();
+
+  return withoutCommand.length >= 3 ? withoutCommand : cleaned;
+};
+
+const explicitlyRequestsPeople = (text = "") =>
+  /\b(person|people|human|humans|man|men|woman|women|boy|girl|child|kid|teen|adult|face|portrait|selfie|headshot|body|model|crowd|family|student|teacher|doctor|worker|character|mascot|avatar|superhero)\b/i.test(
+    text
+  );
+
+const getImageStyleHint = (text = "") => {
+  if (/\b(logo|icon|app icon|brand mark|symbol)\b/i.test(text)) {
+    return "Use a clean centered vector-style composition, strong silhouette, crisp edges, and no extra background clutter.";
+  }
+
+  if (/\b(wallpaper|background|banner|header)\b/i.test(text)) {
+    return "Use a cinematic wide composition with strong depth, polished lighting, and no text unless requested.";
+  }
+
+  if (/\b(photo|photorealistic|realistic)\b/i.test(text)) {
+    return "Use realistic lighting, natural materials, sharp focus, and believable scale.";
+  }
+
+  if (/\b(pixel|sprite|game asset)\b/i.test(text)) {
+    return "Use clean game-asset composition, readable shapes, and no unnecessary background details.";
+  }
+
+  return "Use a polished, detailed composition that clearly centers the requested subject.";
+};
+
+const buildImagePrompt = (message) => {
+  const rawContent = message?.content || "";
+  const subject = stripImageCommand(rawContent);
+  const promptParts = [
+    `Primary subject: ${subject}.`,
+    "Follow the user's request literally and do not add unrelated subjects.",
+    getImageStyleHint(rawContent),
+  ];
+
+  if (!explicitlyRequestsPeople(rawContent)) {
+    promptParts.push(
+      "Do not include people, humans, faces, bodies, portraits, models, or crowds unless the user explicitly asks for them."
+    );
+  }
+
+  if (message?.attachments?.length) {
+    promptParts.push("Use the uploaded image as the visual reference for the requested edit or update.");
+  }
+
+  promptParts.push("No watermark, no logo overlay, no random text.");
+
+  return promptParts.join(" ");
+};
+
 const buildPollinationsUrl = (prompt) => {
   const params = new URLSearchParams({
     width: "1024",
     height: "1024",
     model: "flux",
     nologo: "true",
-    enhance: "true",
+    safe: "true",
     seed: String(Math.floor(Math.random() * 1_000_000)),
   });
 
@@ -169,10 +240,7 @@ export async function onRequestPost(context) {
   }
 
   if (latestUserMessage && wantsImage) {
-    const attachmentNote = latestUserMessage.attachments?.length
-      ? "Use the uploaded image as visual reference for the requested edit/update. "
-      : "";
-    const prompt = `${attachmentNote}${latestUserMessage.content}`.trim();
+    const prompt = buildImagePrompt(latestUserMessage);
     const imageUrl = buildPollinationsUrl(prompt);
 
     return new Response(

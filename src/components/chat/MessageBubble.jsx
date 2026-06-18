@@ -43,12 +43,6 @@ function ImageGenerationAnimation() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_30%,rgba(45,245,197,0.34),transparent_30%),radial-gradient(circle_at_78%_54%,rgba(83,205,255,0.26),transparent_35%),radial-gradient(circle_at_55%_92%,rgba(0,245,228,0.18),transparent_34%)] animate-[color-drift_5.8s_ease-in-out_infinite_alternate]" />
         <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(rgba(255,255,255,.14)_0.7px,transparent_0.7px)] [background-size:3px_3px]" />
         <div className="absolute inset-y-[-35%] left-[-45%] w-1/3 rotate-12 bg-gradient-to-r from-transparent via-white/25 to-transparent blur-2xl animate-[xirako-sweep_3.8s_ease-in-out_infinite]" />
-        <div className="absolute inset-x-5 bottom-5 flex items-center gap-2 rounded-full border border-white/10 bg-black/25 p-2 backdrop-blur-md">
-          <span className="h-2 w-2 rounded-full bg-primary shadow-[0_0_16px_rgba(45,245,197,0.8)] animate-pulse" />
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-primary via-cyan-100 to-primary shadow-[0_0_20px_rgba(45,245,197,0.48)] animate-[soft-progress_3.4s_ease-in-out_infinite]" />
-          </div>
-        </div>
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <div>
