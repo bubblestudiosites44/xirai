@@ -73,28 +73,64 @@ const loadAnonymousUsage = () => {
   }
 };
 
-const VISUAL_SUBJECT_PATTERN =
-  /\b(dog|cat|puppy|kitten|animal|bird|horse|fish|dragon|monster|robot|car|truck|vehicle|house|building|room|landscape|mountain|forest|city|planet|space|ship|sword|flower|tree|product|poster|sticker|logo|icon|wallpaper|avatar|mascot|character)\b/i;
+const IMAGE_NOUN_PATTERN =
+  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|render|poster|sticker|banner|background)\b/i;
+const TECH_BUILD_PATTERN = /\b(code|component|function|script|button|input|upload|feature|bug|fix|api|endpoint|layout)\b/i;
 
 const isImageEditRequest = (text = "") =>
-  /\b(make|edit|update|modify|change|transform|turn|add|give|put|remove|replace)\b.*\b(it|this|that|the\s+(image|picture|photo|one)|last\s+(image|picture|photo|one)|previous\s+(image|picture|photo|one))\b/i.test(
-    text
-  );
+  [
+    /\b(edit|update|modify|change|transform|turn)\b.*\b(the\s+)?(image|picture|photo|last\s+one|previous\s+one)\b/i,
+    /\b(add|give|put|remove|replace)\b.*\b(it|this|that|the\s+(image|picture|photo|one)|last\s+(image|picture|photo|one)|previous\s+(image|picture|photo|one))\b/i,
+    /\bmake\s+(it|this|that)\s+(have|wear|with|look|more|less|bigger|smaller|brighter|darker|into|a|an)\b/i,
+    /\b(change|turn|transform)\s+(it|this|that)\s+(to|into|with)\b/i,
+  ].some((pattern) => pattern.test(text));
 
 const isDirectImageCreationRequest = (text = "") =>
-  [
+  !TECH_BUILD_PATTERN.test(text) &&
+  ([
     /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
     /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
-    /\b(make|create|generate|draw|render|design|paint|illustrate)\s+me\s+(a|an|some)?\s*(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)?\s*(of|for)?\b/i,
     /\b(draw|paint|illustrate|render)\s+(me\s+)?(a|an|the|some)?\s*\w+/i,
   ].some((pattern) => pattern.test(text)) ||
-  (/\b(make|create|generate|design)\s+(me\s+)?(a|an|the|some)?\s*\w+/i.test(text) &&
-    VISUAL_SUBJECT_PATTERN.test(text));
+    (/\b(make|create|generate|design)\b/i.test(text) && IMAGE_NOUN_PATTERN.test(text)));
 
-const isImageRequest = (text = "") => isDirectImageCreationRequest(text) || isImageEditRequest(text);
+const hasGeneratedImage = (messages = []) =>
+  messages.some((message) => /https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+/.test(message.content || ""));
 
-const isWebSearchRequest = (text = "") =>
-  /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
+const shouldHandleImageRequest = (text = "", messages = []) => {
+  const isStartingNewImage = isDirectImageCreationRequest(text) && !isImageEditRequest(text);
+  const isEditingPreviousImage =
+    hasGeneratedImage(messages) && isImageEditRequest(text) && !isStartingNewImage;
+
+  return isStartingNewImage || isEditingPreviousImage;
+};
+
+const shouldUseWebSearch = (text = "", { hasImages = false, wantsImage = false } = {}) => {
+  if (!text || hasImages || wantsImage) {
+    return false;
+  }
+
+  const explicitSearch = /\b(search|look up|google|web|internet|source|sources|find out|check|verify|fact check)\b/i;
+  const currentInfo =
+    /\b(latest|current|today|tonight|now|right now|recent|news|breaking|newest|most recent|up to date|as of|this week|this month|this year|202[4-9])\b/i;
+  const volatileInfo =
+    /\b(price|cost|stock|market cap|weather|forecast|score|schedule|standings|release date|version|changelog|update|available|law|policy|election|president|ceo|owner|net worth|population|ranking|stats|statistics|exchange rate)\b/i;
+  const externalReference = /\b[a-z0-9-]+\.(com|org|net|io|ai|dev|app|gov|edu)\b/i;
+  const personOrEventLookup =
+    /\b(who|when|where|which|how many|how much)\s+(is|are|was|were|did|does|do|can|will|has|have|won|owns)\b/i;
+  const specificWhatLookup =
+    /\bwhat\s+(is|are|was|were|does|do|has|have)\b/i.test(text) &&
+    (externalReference.test(text) || /\b(ceo|owner|founder|release|version|price|cost|weather|score|law|policy|news)\b/i.test(text));
+
+  return (
+    explicitSearch.test(text) ||
+    currentInfo.test(text) ||
+    volatileInfo.test(text) ||
+    externalReference.test(text) ||
+    personOrEventLookup.test(text) ||
+    specificWhatLookup
+  );
+};
 
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -263,8 +299,11 @@ export default function Home() {
   };
 
   const sendMessage = async (content, attachments = []) => {
-    const wantsImage = isImageRequest(content);
-    const wantsWebSearch = isWebSearchRequest(content);
+    const wantsImage = shouldHandleImageRequest(content, messages);
+    const wantsWebSearch = shouldUseWebSearch(content, {
+      hasImages: attachments.length > 0,
+      wantsImage,
+    });
     const usesImageFeature = wantsImage || attachments.length > 0;
 
     if (!isAuthenticated && usesImageFeature) {
