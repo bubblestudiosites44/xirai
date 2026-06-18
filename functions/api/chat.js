@@ -180,6 +180,11 @@ const buildImageEditPrompt = (message, previousPrompt) => {
   return promptParts.join(" ");
 };
 
+const encodeUrlComponentStrict = (value) =>
+  encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+
 const buildPollinationsUrl = (prompt) => {
   const params = new URLSearchParams({
     width: "1024",
@@ -190,7 +195,7 @@ const buildPollinationsUrl = (prompt) => {
     seed: String(Math.floor(Math.random() * 1_000_000)),
   });
 
-  return `${POLLINATIONS_IMAGE_BASE}${encodeURIComponent(prompt)}?${params.toString()}`;
+  return `${POLLINATIONS_IMAGE_BASE}${encodeUrlComponentStrict(prompt)}?${params.toString()}`;
 };
 
 const getLastGeneratedImagePrompt = (messages) => {

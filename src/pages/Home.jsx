@@ -11,6 +11,7 @@ const STORAGE_KEY = "xirai.chat.v1";
 const ANON_USAGE_KEY = "xirai.anon.messages.v1";
 const ANON_MESSAGE_LIMIT = 20;
 const IMAGE_GENERATION_MIN_MS = 3600;
+const IMAGE_PRELOAD_TIMEOUT_MS = 30000;
 
 const makeId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -96,6 +97,46 @@ const isWebSearchRequest = (text = "") =>
   /\b(search|look up|google|web|internet|latest|current|today|recent|news|source|sources)\b/i.test(text);
 
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const extractGeneratedImageUrl = (content = "") => {
+  const markdownMatch = content.match(/!\[Generated image]\((https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+)\)/);
+  const fallbackMatch = content.match(/https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+/);
+  const url = markdownMatch?.[1] || fallbackMatch?.[0] || "";
+
+  return url.replace(/[)\].,]+$/g, "");
+};
+
+const preloadImage = (src) =>
+  new Promise((resolve) => {
+    if (!src || typeof Image === "undefined") {
+      resolve();
+      return;
+    }
+
+    let isSettled = false;
+    const image = new Image();
+    let timeout;
+
+    const finish = () => {
+      if (isSettled) {
+        return;
+      }
+
+      isSettled = true;
+      window.clearTimeout(timeout);
+      resolve();
+    };
+
+    timeout = window.setTimeout(finish, IMAGE_PRELOAD_TIMEOUT_MS);
+    image.onload = finish;
+    image.onerror = finish;
+    image.decoding = "async";
+    image.src = src;
+
+    if (image.complete) {
+      finish();
+    }
+  });
 
 export default function Home() {
   const [store, setStore] = useState(loadStoredChats);
@@ -401,7 +442,11 @@ export default function Home() {
       responseContent += decoder.decode();
       if (shouldDelayImage) {
         const elapsed = Date.now() - startedAt;
-        await wait(Math.max(0, IMAGE_GENERATION_MIN_MS - elapsed));
+        const imageUrl = extractGeneratedImageUrl(responseContent);
+        await Promise.all([
+          wait(Math.max(0, IMAGE_GENERATION_MIN_MS - elapsed)),
+          preloadImage(imageUrl),
+        ]);
       }
       followResponse(currentConvId);
       updateAssistantMessage(currentConvId, assistantMsg.id, {
