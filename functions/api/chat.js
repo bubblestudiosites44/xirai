@@ -553,7 +553,10 @@ const uploadGeneratedImageToSupabase = async ({ imageUrl, prompt, request, env, 
   });
 
   if (!response.ok) {
-    throw new Error("Supabase image upload failed.");
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Supabase image upload failed (${response.status}): ${errorText.slice(0, 300)}`
+    );
   }
 
   return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodeStoragePath(objectPath)}`;
@@ -826,7 +829,8 @@ export async function onRequestPost(context) {
           env: context.env,
           user: supabaseUser,
         });
-      } catch {
+      } catch (storageError) {
+        console.warn("XirAI Supabase image upload failed.", storageError);
         imageUrl = buildPollinationsUrl(prompt);
         imageFallbackNotice =
           "Pro image storage is unavailable right now, so this image was saved with a more basic image service instead.";

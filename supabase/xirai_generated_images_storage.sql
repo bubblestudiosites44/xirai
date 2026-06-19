@@ -16,12 +16,14 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+drop policy if exists "XirAI generated images are public" on storage.objects;
 create policy "XirAI generated images are public"
 on storage.objects
 for select
 to public
 using (bucket_id = 'xirai-generated-images');
 
+drop policy if exists "XirAI users can upload generated images" on storage.objects;
 create policy "XirAI users can upload generated images"
 on storage.objects
 for insert
