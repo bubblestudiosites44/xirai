@@ -5,6 +5,11 @@ const DEFAULT_COMPOUND_FALLBACK_MODEL = "groq/compound";
 const DEFAULT_STABLE_DIFFUSION_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
 const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
 const SUPABASE_PROJECT_ID = "hbbtegiecallsiajrunj";
+const MAX_REQUEST_BYTES = 7 * 1024 * 1024;
+const MAX_VISION_ATTACHMENTS = 3;
+const MAX_ATTACHMENT_DATA_URL_LENGTH = 1_400_000;
+const MAX_TOTAL_ATTACHMENT_DATA_URL_LENGTH = 3_200_000;
+const MAX_GENERATED_IMAGE_DATA_URL_LENGTH = 2_400_000;
 const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
 const DEFAULT_SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiYnRlZ2llY2FsbHNpYWpydW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE2NTEzOTAsImV4cCI6MjA2NzIyNzM5MH0.COj1AuZKSAtTjyghMYoPWfzvF2074tI6iAt2Usnj6JM";
@@ -18,8 +23,35 @@ const json = (body, init = {}) =>
     },
   });
 
+const isValidImageDataUrl = (value = "") =>
+  /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=]+$/i.test(value);
+
+const getUsableAttachments = (message) => {
+  if (!Array.isArray(message.attachments)) {
+    return [];
+  }
+
+  let totalLength = 0;
+
+  return message.attachments
+    .filter((attachment) => {
+      if (!isValidImageDataUrl(attachment?.dataUrl)) {
+        return false;
+      }
+
+      totalLength += attachment.dataUrl.length;
+      return (
+        attachment.dataUrl.length <= MAX_ATTACHMENT_DATA_URL_LENGTH &&
+        totalLength <= MAX_TOTAL_ATTACHMENT_DATA_URL_LENGTH
+      );
+    })
+    .slice(0, MAX_VISION_ATTACHMENTS);
+};
+
+const hasUsableAttachments = (message) => getUsableAttachments(message).length > 0;
+
 const asGroqContent = (message) => {
-  const attachments = Array.isArray(message.attachments) ? message.attachments.slice(0, 5) : [];
+  const attachments = getUsableAttachments(message);
 
   if (message.role !== "user" || attachments.length === 0) {
     return message.content || "";
@@ -366,7 +398,13 @@ const generateStableDiffusionImageUrl = async (prompt, env) => {
     guidance: 7.5,
   });
 
-  return imageResultToDataUrl(imageResult);
+  const imageUrl = await imageResultToDataUrl(imageResult);
+
+  if (imageUrl.length > MAX_GENERATED_IMAGE_DATA_URL_LENGTH) {
+    throw new Error("Stable Diffusion returned an image that is too large for the chat page.");
+  }
+
+  return imageUrl;
 };
 
 const buildPollinationsUrl = (prompt) => {
@@ -593,6 +631,14 @@ const verifySignedIn = async (request, env) => {
 };
 
 export async function onRequestPost(context) {
+  const contentLength = Number(context.request.headers.get("content-length") || 0);
+  if (contentLength > MAX_REQUEST_BYTES) {
+    return json(
+      { error: "That upload is too large. Send fewer images or smaller files." },
+      { status: 413 }
+    );
+  }
+
   let body;
   try {
     body = await context.request.json();
@@ -600,13 +646,18 @@ export async function onRequestPost(context) {
     return json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const incomingMessages = Array.isArray(body.messages) ? body.messages.slice(-10) : [];
+  const incomingMessages = Array.isArray(body.messages)
+    ? body.messages.slice(-10).map((message) => ({
+        ...message,
+        attachments: getUsableAttachments(message),
+      }))
+    : [];
   if (incomingMessages.length === 0) {
     return json({ error: "No messages provided." }, { status: 400 });
   }
 
   const latestUserMessage = getLatestUserMessage(incomingMessages);
-  const hasImages = incomingMessages.some((message) => message.attachments?.length);
+  const hasImages = incomingMessages.some(hasUsableAttachments);
   const previousImagePrompt = getLastGeneratedImagePrompt(incomingMessages);
   const latestText = latestUserMessage?.content || "";
   const { isEditingPreviousImage, wantsImage } = shouldHandleImageRequest(latestText, previousImagePrompt);

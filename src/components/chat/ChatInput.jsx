@@ -1,8 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowUp, ImagePlus, X } from "lucide-react";
 
-const MAX_IMAGES = 5;
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_IMAGES = 3;
+const MAX_SOURCE_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_OUTPUT_DATA_URL_LENGTH = 1_200_000;
+const MAX_TOTAL_DATA_URL_LENGTH = 2_800_000;
+const MAX_IMAGE_DIMENSION = 1280;
+const IMAGE_QUALITY = 0.72;
 
 const readFileAsDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -13,6 +17,38 @@ const readFileAsDataUrl = (file) =>
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+
+const loadImage = (src) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.decoding = "async";
+    image.src = src;
+  });
+
+const compressImageFile = async (file) => {
+  const source = await readFileAsDataUrl(file);
+  const image = await loadImage(source);
+  const maxSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height);
+  const scale = maxSide > MAX_IMAGE_DIMENSION ? MAX_IMAGE_DIMENSION / maxSide : 1;
+  const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+  const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { alpha: false });
+
+  if (!context) {
+    throw new Error("Image compression is unavailable in this browser.");
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+};
 
 export default function ChatInput({ onSend, isLoading, isLimited = false }) {
   const [value, setValue] = useState("");
@@ -33,29 +69,59 @@ export default function ChatInput({ onSend, isLoading, isLimited = false }) {
     setFileError("");
 
     const remainingSlots = MAX_IMAGES - attachments.length;
+    if (remainingSlots <= 0) {
+      setFileError(`You can attach up to ${MAX_IMAGES} images at once.`);
+      event.target.value = "";
+      return;
+    }
+
+    if (selected.length > remainingSlots) {
+      setFileError(`Only ${MAX_IMAGES} images can be attached at once.`);
+    }
+
     const validFiles = selected.slice(0, remainingSlots).filter((file) => {
       if (!file.type.startsWith("image/")) {
         setFileError("Only image uploads are supported.");
         return false;
       }
 
-      if (file.size > MAX_IMAGE_BYTES) {
-        setFileError("Each image must be 4MB or smaller for Groq vision.");
+      if (file.size > MAX_SOURCE_IMAGE_BYTES) {
+        setFileError("Each image must be 8MB or smaller before compression.");
         return false;
       }
 
       return true;
     });
 
-    const nextAttachments = await Promise.all(
-      validFiles.map(async (file) => ({
-        id: `${file.name}-${file.lastModified}-${file.size}`,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file),
-      }))
-    );
+    const nextAttachments = [];
+    let totalDataLength =
+      attachments.reduce((sum, attachment) => sum + (attachment.dataUrl?.length || 0), 0);
+
+    for (const file of validFiles) {
+      try {
+        const dataUrl = await compressImageFile(file);
+
+        if (
+          dataUrl.length > MAX_OUTPUT_DATA_URL_LENGTH ||
+          totalDataLength + dataUrl.length > MAX_TOTAL_DATA_URL_LENGTH
+        ) {
+          setFileError("Some images were too large after compression. Try fewer or smaller images.");
+          continue;
+        }
+
+        totalDataLength += dataUrl.length;
+        nextAttachments.push({
+          id: `${file.name}-${file.lastModified}-${file.size}`,
+          name: file.name,
+          type: "image/jpeg",
+          size: dataUrl.length,
+          originalSize: file.size,
+          dataUrl,
+        });
+      } catch {
+        setFileError("One image could not be processed. Try a smaller image.");
+      }
+    }
 
     setAttachments((current) => [...current, ...nextAttachments].slice(0, MAX_IMAGES));
     event.target.value = "";

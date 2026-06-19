@@ -44,6 +44,10 @@ const markdownUrlTransform = (url = "") => {
     return trimmedUrl;
   }
 
+  if (trimmedUrl.startsWith("blob:")) {
+    return trimmedUrl;
+  }
+
   if (trimmedUrl.startsWith("xirai-image-prompt:")) {
     return trimmedUrl;
   }
@@ -105,6 +109,10 @@ function GeneratedImage({ src, alt, prompt }) {
 
     setDidFail(true);
   };
+
+  if (!currentSrc) {
+    return null;
+  }
 
   if (didFail) {
     return (
@@ -193,9 +201,9 @@ export default function MessageBubble({ message }) {
             : "w-full max-w-full border border-white/10 bg-card/90 text-foreground backdrop-blur-xl"
         }`}
       >
-        {message.attachments?.length > 0 && (
+        {message.attachments?.some((attachment) => attachment.dataUrl) && (
           <div className="mb-3 grid grid-cols-2 gap-2">
-            {message.attachments.map((attachment) => (
+            {message.attachments.filter((attachment) => attachment.dataUrl).map((attachment) => (
               <img
                 key={attachment.id || attachment.dataUrl}
                 src={attachment.dataUrl}

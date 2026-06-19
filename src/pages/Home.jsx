@@ -12,6 +12,10 @@ const ANON_USAGE_KEY = "xirai.anon.messages.v1";
 const ANON_MESSAGE_LIMIT = 20;
 const IMAGE_GENERATION_MIN_MS = 3600;
 const IMAGE_PRELOAD_TIMEOUT_MS = 30000;
+const MAX_STORED_CONVERSATIONS = 30;
+const MAX_STORED_MESSAGES_PER_CONVERSATION = 40;
+const GENERATED_IMAGE_MARKDOWN_PATTERN =
+  /!\[Generated image]\((data:image\/[^\s)]+|blob:[^)]+)\)/g;
 
 const makeId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -30,16 +34,17 @@ const loadStoredChats = () => {
       Object.entries(parsed.messagesByConversation || {}).map(([conversationId, messages]) => [
         conversationId,
         Array.isArray(messages)
-          ? messages.map((message) => ({
-              ...message,
-              isStreaming: false,
-            }))
+          ? messages
+              .slice(-MAX_STORED_MESSAGES_PER_CONVERSATION)
+              .map((message) => sanitizeMessageForStorage(message))
           : [],
       ])
     );
 
     return {
-      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+      conversations: Array.isArray(parsed.conversations)
+        ? parsed.conversations.slice(0, MAX_STORED_CONVERSATIONS)
+        : [],
       messagesByConversation,
     };
   } catch {
@@ -138,11 +143,105 @@ const shouldUseWebSearch = (text = "", { hasImages = false, wantsImage = false }
 
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+const dataUrlToBlob = (dataUrl = "") => {
+  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: match[1] });
+};
+
+const makeGeneratedImagesLightweight = (content = "") =>
+  content.replace(GENERATED_IMAGE_MARKDOWN_PATTERN, (fullMatch, imageUrl) => {
+    if (!imageUrl.startsWith("data:image/") || typeof URL === "undefined") {
+      return fullMatch;
+    }
+
+    const blob = dataUrlToBlob(imageUrl);
+    if (!blob) {
+      return fullMatch;
+    }
+
+    return `![Generated image](${URL.createObjectURL(blob)})`;
+  });
+
+const stripEphemeralGeneratedImages = (content = "") =>
+  content.replace(
+    GENERATED_IMAGE_MARKDOWN_PATTERN,
+    "[Generated image kept for this session only]"
+  );
+
+const sanitizeAttachmentForStorage = (attachment) => {
+  if (!attachment?.id) {
+    return null;
+  }
+
+  return {
+    id: attachment.id,
+    name: attachment.name || "Uploaded image",
+    type: attachment.type || "image/jpeg",
+    size: Number(attachment.size) || 0,
+    originalSize: Number(attachment.originalSize) || undefined,
+  };
+};
+
+const sanitizeMessageForStorage = (message = {}) => ({
+  id: message.id,
+  conversation_id: message.conversation_id,
+  role: message.role,
+  content: stripEphemeralGeneratedImages(message.content || ""),
+  created_date: message.created_date,
+  attachments: Array.isArray(message.attachments)
+    ? message.attachments.map(sanitizeAttachmentForStorage).filter(Boolean)
+    : undefined,
+  isStreaming: false,
+  isGeneratingImage: false,
+  isSearchingWeb: false,
+});
+
+const buildPersistableStore = (store) => {
+  const conversations = store.conversations.slice(0, MAX_STORED_CONVERSATIONS);
+  const allowedIds = new Set(conversations.map((conversation) => conversation.id));
+  const messagesByConversation = {};
+
+  for (const conversation of conversations) {
+    messagesByConversation[conversation.id] = (store.messagesByConversation[conversation.id] || [])
+      .slice(-MAX_STORED_MESSAGES_PER_CONVERSATION)
+      .map(sanitizeMessageForStorage);
+  }
+
+  return {
+    conversations,
+    messagesByConversation: Object.fromEntries(
+      Object.entries(messagesByConversation).filter(([id]) => allowedIds.has(id))
+    ),
+  };
+};
+
+const getApiMessages = (messages, latestMessageId) =>
+  messages.slice(-10).map((message) =>
+    message.id === latestMessageId
+      ? message
+      : {
+          ...message,
+          attachments: [],
+        }
+  );
+
 const extractGeneratedImageUrl = (content = "") => {
   const markdownMatch = content.match(
-    /!\[Generated image]\((data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+)\)/
+    /!\[Generated image]\((blob:[^)]+|data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+)\)/
   );
-  const fallbackMatch = content.match(/data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+/);
+  const fallbackMatch = content.match(/blob:[^\s)]+|data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+/);
   const url = markdownMatch?.[1] || fallbackMatch?.[0] || "";
 
   return url.replace(/[)\].,]+$/g, "");
@@ -204,7 +303,11 @@ export default function Home() {
   };
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(buildPersistableStore(store)));
+    } catch (error) {
+      console.warn("XirAI could not save chat history locally.", error);
+    }
   }, [store]);
 
   useEffect(() => {
@@ -410,7 +513,7 @@ export default function Home() {
       conversation_id: currentConvId,
       role: "user",
       content,
-      attachments,
+      attachments: attachments.slice(0, 3),
       created_date: now,
     };
 
@@ -451,7 +554,7 @@ export default function Home() {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
-          messages: nextMessages.slice(-10),
+          messages: getApiMessages(nextMessages, userMsg.id),
         }),
       });
 
@@ -491,7 +594,7 @@ export default function Home() {
         }
       }
 
-      responseContent += decoder.decode();
+      responseContent = makeGeneratedImagesLightweight(responseContent + decoder.decode());
       if (shouldDelayImage) {
         const elapsed = Date.now() - startedAt;
         const imageUrl = extractGeneratedImageUrl(responseContent);
