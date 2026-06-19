@@ -238,18 +238,27 @@ const arrayBufferToBase64 = (buffer) => {
 };
 
 const imageResultToDataUrl = async (imageResult) => {
+  const bytesToDataUrl = (buffer, mimeType = "image/jpeg") =>
+    `data:${mimeType};base64,${arrayBufferToBase64(buffer)}`;
+
   if (typeof imageResult === "string") {
     return imageResult.startsWith("data:image/")
       ? imageResult
-      : `data:image/png;base64,${imageResult}`;
+      : `data:image/jpeg;base64,${imageResult}`;
   }
 
   if (imageResult instanceof Response) {
-    return `data:image/png;base64,${arrayBufferToBase64(await imageResult.arrayBuffer())}`;
+    const contentType = imageResult.headers.get("content-type");
+    const mimeType = contentType?.startsWith("image/") ? contentType : "image/jpeg";
+    return bytesToDataUrl(await imageResult.arrayBuffer(), mimeType);
+  }
+
+  if (typeof ReadableStream !== "undefined" && imageResult instanceof ReadableStream) {
+    return bytesToDataUrl(await new Response(imageResult).arrayBuffer());
   }
 
   if (imageResult instanceof ArrayBuffer) {
-    return `data:image/png;base64,${arrayBufferToBase64(imageResult)}`;
+    return bytesToDataUrl(imageResult);
   }
 
   if (ArrayBuffer.isView(imageResult)) {
@@ -257,17 +266,21 @@ const imageResultToDataUrl = async (imageResult) => {
       imageResult.byteOffset,
       imageResult.byteOffset + imageResult.byteLength
     );
-    return `data:image/png;base64,${arrayBufferToBase64(buffer)}`;
+    return bytesToDataUrl(buffer);
   }
 
   if (typeof imageResult?.image === "string") {
     return imageResult.image.startsWith("data:image/")
       ? imageResult.image
-      : `data:image/png;base64,${imageResult.image}`;
+      : `data:image/jpeg;base64,${imageResult.image}`;
   }
 
   if (imageResult?.image instanceof ArrayBuffer) {
-    return `data:image/png;base64,${arrayBufferToBase64(imageResult.image)}`;
+    return bytesToDataUrl(imageResult.image);
+  }
+
+  if (typeof ReadableStream !== "undefined" && imageResult?.image instanceof ReadableStream) {
+    return bytesToDataUrl(await new Response(imageResult.image).arrayBuffer());
   }
 
   throw new Error("Stable Diffusion returned an unsupported image format.");
