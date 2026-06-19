@@ -180,6 +180,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [anonymousUsage, setAnonymousUsage] = useState(loadAnonymousUsage);
+  const [modelLimitNotice, setModelLimitNotice] = useState("");
   const messagesViewportRef = useRef(null);
   const shouldFollowResponseRef = useRef(false);
   const followConversationRef = useRef(null);
@@ -453,6 +454,8 @@ export default function Home() {
         throw new Error(errorData.error || "XirAI is busy right now. Please try again in a moment.");
       }
 
+      setModelLimitNotice(res.headers.get("X-XirAI-Limit-Notice") || "");
+
       const reader = res.body?.getReader();
       if (!reader) {
         throw new Error("The response stream was unavailable.");
@@ -575,6 +578,12 @@ export default function Home() {
                     Sign in
                   </button>
                 )}
+              </div>
+            )}
+            {modelLimitNotice && (
+              <div className="mb-3 flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-medium text-primary">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>{modelLimitNotice}</span>
               </div>
             )}
             <ChatInput

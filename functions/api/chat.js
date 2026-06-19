@@ -504,22 +504,23 @@ export async function onRequestPost(context) {
       }),
     });
 
-  let streamPrefix = "";
+  let limitNotice = "";
   let groqResponse = await fetchGroqCompletion(model);
 
   if (!groqResponse.ok) {
     if (groqResponse.status === 429) {
       const resetLabel = getRateLimitResetLabel(groqResponse);
       const fallbackModel = context.env.GROQ_LIMIT_FALLBACK_MODEL || DEFAULT_LIMIT_FALLBACK_MODEL;
-      streamPrefix = `You've hit the pro tier limit for XirAI. New responses will use a more basic model until your limit resets after ${resetLabel}.\n\n`;
+      limitNotice = `You've hit the pro tier limit for XirAI. New responses will use a more basic model until your limit resets after ${resetLabel}.`;
 
       groqResponse = await fetchGroqCompletion(fallbackModel);
 
       if (!groqResponse.ok) {
-        return new Response(`${streamPrefix}XirAI is still busy. Please try again in a moment.`, {
+        return new Response("XirAI is still busy. Please try again in a moment.", {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
+            "X-XirAI-Limit-Notice": limitNotice,
           },
         });
       }
@@ -535,9 +536,10 @@ export async function onRequestPost(context) {
   }
 
   if (!groqResponse.body) {
-    return new Response(streamPrefix || "", {
+    return new Response("", {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
+        ...(limitNotice ? { "X-XirAI-Limit-Notice": limitNotice } : {}),
       },
     });
   }
@@ -552,10 +554,6 @@ export async function onRequestPost(context) {
         let buffer = "";
 
         try {
-          if (streamPrefix) {
-            controller.enqueue(encoder.encode(streamPrefix));
-          }
-
           while (true) {
             const { value, done } = await reader.read();
             if (done) {
@@ -601,6 +599,7 @@ export async function onRequestPost(context) {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
+        ...(limitNotice ? { "X-XirAI-Limit-Notice": limitNotice } : {}),
       },
     }
   );
