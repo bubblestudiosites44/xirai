@@ -1,5 +1,6 @@
 const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const DEFAULT_LIMIT_FALLBACK_MODEL = "groq/compound";
 const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
 const SUPABASE_PROJECT_ID = "hbbtegiecallsiajrunj";
 const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
@@ -279,6 +280,85 @@ const decodeDuckUrl = (value = "") => {
   }
 };
 
+const parseResetDurationMs = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = String(value).trim();
+  const numericValue = Number(trimmed);
+  if (Number.isFinite(numericValue)) {
+    if (numericValue > 1_000_000_000_000) {
+      return Math.max(0, numericValue - Date.now());
+    }
+
+    if (numericValue > 1_000_000_000) {
+      return Math.max(0, numericValue * 1000 - Date.now());
+    }
+
+    return Math.max(0, numericValue * 1000);
+  }
+
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+
+  const durationMatch = trimmed.match(
+    /^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?$/i
+  );
+  if (!durationMatch) {
+    return null;
+  }
+
+  const hours = Number(durationMatch[1] || 0);
+  const minutes = Number(durationMatch[2] || 0);
+  const seconds = Number(durationMatch[3] || 0);
+  const totalMs = (hours * 60 * 60 + minutes * 60 + seconds) * 1000;
+
+  return totalMs > 0 ? totalMs : null;
+};
+
+const formatResetDuration = (ms) => {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return "a little while";
+  }
+
+  const seconds = Math.ceil(ms / 1000);
+  if (seconds < 90) {
+    return `about ${seconds} second${seconds === 1 ? "" : "s"}`;
+  }
+
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 90) {
+    return `about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 36) {
+    return `about ${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+
+  const days = Math.ceil(hours / 24);
+  return `about ${days} day${days === 1 ? "" : "s"}`;
+};
+
+const getRateLimitResetLabel = (response) => {
+  const resetDurations = [
+    response.headers.get("retry-after"),
+    response.headers.get("x-ratelimit-reset-requests"),
+    response.headers.get("x-ratelimit-reset-tokens"),
+  ]
+    .map(parseResetDurationMs)
+    .filter((duration) => Number.isFinite(duration));
+
+  if (!resetDurations.length) {
+    return "a little while";
+  }
+
+  return formatResetDuration(Math.max(...resetDurations));
+};
+
 const performWebSearch = async (query) => {
   const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const response = await fetch(searchUrl, {
@@ -408,42 +488,54 @@ export async function onRequestPost(context) {
     })),
   ];
 
-  const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.6,
-      max_completion_tokens: 1024,
-      stream: true,
-    }),
-  });
+  const fetchGroqCompletion = (selectedModel) =>
+    fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: selectedModel,
+        messages,
+        temperature: 0.6,
+        max_completion_tokens: 1024,
+        stream: true,
+      }),
+    });
+
+  let streamPrefix = "";
+  let groqResponse = await fetchGroqCompletion(model);
 
   if (!groqResponse.ok) {
     if (groqResponse.status === 429) {
+      const resetLabel = getRateLimitResetLabel(groqResponse);
+      const fallbackModel = context.env.GROQ_LIMIT_FALLBACK_MODEL || DEFAULT_LIMIT_FALLBACK_MODEL;
+      streamPrefix = `You've hit the pro tier limit for XirAI. New responses will use a more basic model until your limit resets after ${resetLabel}.\n\n`;
+
+      groqResponse = await fetchGroqCompletion(fallbackModel);
+
+      if (!groqResponse.ok) {
+        return new Response(`${streamPrefix}XirAI is still busy. Please try again in a moment.`, {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+    } else {
+      const groqData = await groqResponse.json().catch(() => ({}));
       return json(
         {
-          error: "XirAI is busy right now. Please try again in a moment.",
+          error: groqData.error?.message || "Groq request failed.",
         },
-        { status: 429 }
+        { status: groqResponse.status }
       );
     }
-
-    const groqData = await groqResponse.json().catch(() => ({}));
-    return json(
-      {
-        error: groqData.error?.message || "Groq request failed.",
-      },
-      { status: groqResponse.status }
-    );
   }
 
   if (!groqResponse.body) {
-    return new Response("", {
+    return new Response(streamPrefix || "", {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
       },
@@ -460,6 +552,10 @@ export async function onRequestPost(context) {
         let buffer = "";
 
         try {
+          if (streamPrefix) {
+            controller.enqueue(encoder.encode(streamPrefix));
+          }
+
           while (true) {
             const { value, done } = await reader.read();
             if (done) {
