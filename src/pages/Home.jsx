@@ -252,9 +252,9 @@ const getApiMessages = (messages, latestMessageId) =>
 
 const extractGeneratedImageUrl = (content = "") => {
   const markdownMatch = content.match(
-    /!\[Generated image]\((blob:[^)]+|data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+)\)/
+    /!\[Generated image]\((blob:[^)]+|data:image\/[^\s)]+|https?:\/\/[^\s)]+)\)/
   );
-  const fallbackMatch = content.match(/blob:[^\s)]+|data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+/);
+  const fallbackMatch = content.match(/blob:[^\s)]+|data:image\/[^\s)]+|https?:\/\/[^\s]+/);
   const url = markdownMatch?.[1] || fallbackMatch?.[0] || "";
 
   return url.replace(/[)\].,]+$/g, "");

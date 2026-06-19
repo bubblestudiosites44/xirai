@@ -5,11 +5,11 @@ const DEFAULT_COMPOUND_FALLBACK_MODEL = "groq/compound";
 const DEFAULT_STABLE_DIFFUSION_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
 const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
 const SUPABASE_PROJECT_ID = "hbbtegiecallsiajrunj";
+const DEFAULT_SUPABASE_IMAGE_BUCKET = "xirai-generated-images";
 const MAX_REQUEST_BYTES = 7 * 1024 * 1024;
 const MAX_VISION_ATTACHMENTS = 3;
 const MAX_ATTACHMENT_DATA_URL_LENGTH = 1_400_000;
 const MAX_TOTAL_ATTACHMENT_DATA_URL_LENGTH = 3_200_000;
-const MAX_GENERATED_IMAGE_DATA_URL_LENGTH = 2_400_000;
 const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
 const DEFAULT_SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiYnRlZ2llY2FsbHNpYWpydW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE2NTEzOTAsImV4cCI6MjA2NzIyNzM5MH0.COj1AuZKSAtTjyghMYoPWfzvF2074tI6iAt2Usnj6JM";
@@ -22,6 +22,9 @@ const json = (body, init = {}) =>
       ...(init.headers || {}),
     },
   });
+
+const getBearerToken = (request) =>
+  (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
 
 const isValidImageDataUrl = (value = "") =>
   /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=]+$/i.test(value);
@@ -459,13 +462,7 @@ const generateStableDiffusionImageUrl = async (prompt, env) => {
     guidance: 7.5,
   });
 
-  const imageUrl = await imageResultToDataUrl(imageResult);
-
-  if (imageUrl.length > MAX_GENERATED_IMAGE_DATA_URL_LENGTH) {
-    throw new Error("Stable Diffusion returned an image that is too large for the chat page.");
-  }
-
-  return imageUrl;
+  return imageResultToDataUrl(imageResult);
 };
 
 const buildPollinationsUrl = (prompt) => {
@@ -479,6 +476,87 @@ const buildPollinationsUrl = (prompt) => {
   });
 
   return `${POLLINATIONS_IMAGE_BASE}${encodeUrlComponentStrict(prompt)}?${params.toString()}`;
+};
+
+const getDataUrlUploadParts = (dataUrl = "") => {
+  const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|gif|webp));base64,(.+)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const extension =
+    mimeType === "image/png"
+      ? "png"
+      : mimeType === "image/webp"
+        ? "webp"
+        : mimeType === "image/gif"
+          ? "gif"
+          : "jpg";
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return {
+    bytes,
+    mimeType,
+    extension,
+  };
+};
+
+const encodeStoragePath = (path) => path.split("/").map(encodeURIComponent).join("/");
+
+const uploadGeneratedImageToSupabase = async ({ imageUrl, prompt, request, env, user }) => {
+  if (!imageUrl.startsWith("data:image/")) {
+    return imageUrl;
+  }
+
+  const parts = getDataUrlUploadParts(imageUrl);
+  if (!parts) {
+    throw new Error("Generated image was not uploadable.");
+  }
+
+  const supabaseUrl = (env.SUPABASE_URL || DEFAULT_SUPABASE_URL).replace(/\/$/, "");
+  const supabaseAnonKey = env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const userToken = getBearerToken(request);
+  const authKey = serviceRoleKey || userToken;
+
+  if (!authKey) {
+    throw new Error("Missing Supabase upload credentials.");
+  }
+
+  const bucket = env.SUPABASE_IMAGE_BUCKET || DEFAULT_SUPABASE_IMAGE_BUCKET;
+  const userId = String(user?.id || "user").replace(/[^a-z0-9_-]/gi, "");
+  const date = new Date().toISOString().slice(0, 10);
+  const objectId =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const objectPath = `generated/${userId}/${date}/${objectId}.${parts.extension}`;
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${encodeStoragePath(objectPath)}`;
+
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey || supabaseAnonKey,
+      Authorization: `Bearer ${authKey}`,
+      "Content-Type": parts.mimeType,
+      "Cache-Control": "31536000",
+      "x-upsert": "false",
+    },
+    body: parts.bytes,
+  });
+
+  if (!response.ok) {
+    throw new Error("Supabase image upload failed.");
+  }
+
+  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodeStoragePath(objectPath)}`;
 };
 
 const getLastGeneratedImagePrompt = (messages) => {
@@ -671,12 +749,11 @@ const performWebSearch = async (query) => {
     .slice(0, 5);
 };
 
-const verifySignedIn = async (request, env) => {
-  const authHeader = request.headers.get("Authorization") || "";
-  const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1];
+const getSupabaseUser = async (request, env) => {
+  const token = getBearerToken(request);
 
   if (!token) {
-    return false;
+    return null;
   }
 
   const supabaseUrl = env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
@@ -688,7 +765,11 @@ const verifySignedIn = async (request, env) => {
     },
   });
 
-  return response.ok;
+  if (!response.ok) {
+    return null;
+  }
+
+  return response.json().catch(() => null);
 };
 
 export async function onRequestPost(context) {
@@ -722,8 +803,9 @@ export async function onRequestPost(context) {
   const previousImagePrompt = getLastGeneratedImagePrompt(incomingMessages);
   const latestText = latestUserMessage?.content || "";
   const { isEditingPreviousImage, wantsImage } = shouldHandleImageRequest(latestText, previousImagePrompt);
+  const supabaseUser = wantsImage || hasImages ? await getSupabaseUser(context.request, context.env) : null;
 
-  if ((wantsImage || hasImages) && !(await verifySignedIn(context.request, context.env))) {
+  if ((wantsImage || hasImages) && !supabaseUser) {
     return json({ error: "Sign in with Xirako to use image features." }, { status: 401 });
   }
 
@@ -736,6 +818,19 @@ export async function onRequestPost(context) {
 
     try {
       imageUrl = await generateStableDiffusionImageUrl(prompt, context.env);
+      try {
+        imageUrl = await uploadGeneratedImageToSupabase({
+          imageUrl,
+          prompt,
+          request: context.request,
+          env: context.env,
+          user: supabaseUser,
+        });
+      } catch {
+        imageUrl = buildPollinationsUrl(prompt);
+        imageFallbackNotice =
+          "Pro image storage is unavailable right now, so this image was saved with a more basic image service instead.";
+      }
     } catch {
       imageUrl = buildPollinationsUrl(prompt);
       imageFallbackNotice =
