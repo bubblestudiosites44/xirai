@@ -237,23 +237,85 @@ const arrayBufferToBase64 = (buffer) => {
   return btoa(binary);
 };
 
+const detectImageMimeType = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+
+  if (
+    bytes.length >= 6 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38
+  ) {
+    return "image/gif";
+  }
+
+  return "";
+};
+
+const base64ToArrayBuffer = (value) => {
+  const binary = atob(value.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, ""));
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes.buffer;
+};
+
 const imageResultToDataUrl = async (imageResult) => {
-  const bytesToDataUrl = (buffer, mimeType = "image/jpeg") =>
-    `data:${mimeType};base64,${arrayBufferToBase64(buffer)}`;
+  const bytesToDataUrl = (buffer) => {
+    const mimeType = detectImageMimeType(buffer);
+
+    if (!mimeType) {
+      throw new Error("Stable Diffusion returned non-image data.");
+    }
+
+    return `data:${mimeType};base64,${arrayBufferToBase64(buffer)}`;
+  };
 
   if (typeof imageResult === "string") {
-    return imageResult.startsWith("data:image/")
-      ? imageResult
-      : `data:image/jpeg;base64,${imageResult}`;
+    return bytesToDataUrl(base64ToArrayBuffer(imageResult));
   }
 
   if (imageResult instanceof Response) {
-    const contentType = imageResult.headers.get("content-type");
-    const mimeType = contentType?.startsWith("image/") ? contentType : "image/jpeg";
-    return bytesToDataUrl(await imageResult.arrayBuffer(), mimeType);
+    return bytesToDataUrl(await imageResult.arrayBuffer());
   }
 
-  if (typeof ReadableStream !== "undefined" && imageResult instanceof ReadableStream) {
+  if (typeof imageResult?.getReader === "function") {
     return bytesToDataUrl(await new Response(imageResult).arrayBuffer());
   }
 
@@ -270,16 +332,14 @@ const imageResultToDataUrl = async (imageResult) => {
   }
 
   if (typeof imageResult?.image === "string") {
-    return imageResult.image.startsWith("data:image/")
-      ? imageResult.image
-      : `data:image/jpeg;base64,${imageResult.image}`;
+    return bytesToDataUrl(base64ToArrayBuffer(imageResult.image));
   }
 
   if (imageResult?.image instanceof ArrayBuffer) {
     return bytesToDataUrl(imageResult.image);
   }
 
-  if (typeof ReadableStream !== "undefined" && imageResult?.image instanceof ReadableStream) {
+  if (typeof imageResult?.image?.getReader === "function") {
     return bytesToDataUrl(await new Response(imageResult.image).arrayBuffer());
   }
 

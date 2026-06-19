@@ -1,6 +1,59 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Check, Clipboard, Search, Sparkles, User } from "lucide-react";
+
+const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
+
+const buildPollinationsFallbackUrl = (prompt) => {
+  const params = new URLSearchParams({
+    width: "1024",
+    height: "1024",
+    model: "flux",
+    nologo: "true",
+    safe: "true",
+    seed: String(Math.floor(Math.random() * 1_000_000)),
+  });
+
+  return `${POLLINATIONS_IMAGE_BASE}${encodeURIComponent(prompt)}?${params.toString()}`;
+};
+
+const extractImagePromptMetadata = (content = "") => {
+  const match = content.match(/xirai-image-prompt:([^\s)]+)/);
+
+  if (!match?.[1]) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return "";
+  }
+};
+
+const stripImagePromptMetadata = (content = "") =>
+  content
+    .replace(/\n?\[Image prompt metadata]\(xirai-image-prompt:[^\s)]+\)\s*/g, "")
+    .replace(/\n?Image prompt metadata\s*$/gm, "")
+    .trim();
+
+const markdownUrlTransform = (url = "") => {
+  const trimmedUrl = url.trim();
+
+  if (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(trimmedUrl)) {
+    return trimmedUrl;
+  }
+
+  if (trimmedUrl.startsWith("xirai-image-prompt:")) {
+    return trimmedUrl;
+  }
+
+  if (/^(https?:|mailto:|tel:)/i.test(trimmedUrl) || trimmedUrl.startsWith("/") || trimmedUrl.startsWith("#")) {
+    return trimmedUrl;
+  }
+
+  return "";
+};
 
 function CodeBlock({ className = "", children }) {
   const [copied, setCopied] = useState(false);
@@ -32,6 +85,44 @@ function CodeBlock({ className = "", children }) {
         <code className={className}>{code}</code>
       </pre>
     </div>
+  );
+}
+
+function GeneratedImage({ src, alt, prompt }) {
+  const [currentSrc, setCurrentSrc] = useState(src);
+  const [didFail, setDidFail] = useState(false);
+
+  useEffect(() => {
+    setCurrentSrc(src);
+    setDidFail(false);
+  }, [src]);
+
+  const handleError = () => {
+    if (prompt && !currentSrc?.startsWith(POLLINATIONS_IMAGE_BASE)) {
+      setCurrentSrc(buildPollinationsFallbackUrl(prompt));
+      return;
+    }
+
+    setDidFail(true);
+  };
+
+  if (didFail) {
+    return (
+      <div className="my-3 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-muted-foreground">
+        Image could not load. Try generating it again.
+      </div>
+    );
+  }
+
+  return (
+    <a href={currentSrc} target="_blank" rel="noreferrer">
+      <img
+        src={currentSrc}
+        alt={alt || "Generated image"}
+        onError={handleError}
+        className="my-3 max-h-[34rem] w-full rounded-2xl border border-white/10 object-contain"
+      />
+    </a>
   );
 }
 
@@ -84,6 +175,8 @@ function WebSearchAnimation() {
 
 export default function MessageBubble({ message }) {
   const isUser = message.role === "user";
+  const imagePrompt = useMemo(() => extractImagePromptMetadata(message.content), [message.content]);
+  const displayContent = useMemo(() => stripImagePromptMetadata(message.content), [message.content]);
 
   return (
     <div className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
@@ -127,6 +220,7 @@ export default function MessageBubble({ message }) {
         ) : (
           <>
             <ReactMarkdown
+              urlTransform={markdownUrlTransform}
               components={{
                 code({ children, ...props }) {
                   return (
@@ -145,7 +239,9 @@ export default function MessageBubble({ message }) {
                   return <CodeBlock className={className}>{codeChildren}</CodeBlock>;
                 },
                 a({ href, children, ...props }) {
-                  if (href?.startsWith("xirai-image-prompt:")) {
+                  const text = React.Children.toArray(children).join("").trim();
+
+                  if (href?.startsWith("xirai-image-prompt:") || text === "Image prompt metadata") {
                     return null;
                   }
 
@@ -156,15 +252,7 @@ export default function MessageBubble({ message }) {
                   );
                 },
                 img({ src, alt }) {
-                  return (
-                    <a href={src} target="_blank" rel="noreferrer">
-                      <img
-                        src={src}
-                        alt={alt || "Generated image"}
-                        className="my-3 max-h-[34rem] w-full rounded-2xl border border-white/10 object-contain"
-                      />
-                    </a>
-                  );
+                  return <GeneratedImage src={src} alt={alt} prompt={imagePrompt} />;
                 },
               }}
               className="prose prose-sm prose-invert max-w-none text-sm
@@ -174,7 +262,7 @@ export default function MessageBubble({ message }) {
                 prose-a:text-primary prose-a:no-underline hover:prose-a:underline
                 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2"
             >
-              {message.content}
+              {displayContent}
             </ReactMarkdown>
             {message.isStreaming && (
               <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-full bg-primary/80" />
