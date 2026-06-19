@@ -79,7 +79,9 @@ const loadAnonymousUsage = () => {
 };
 
 const IMAGE_NOUN_PATTERN =
-  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|render|poster|sticker|banner|background)\b/i;
+  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|render|poster|sticker|banner|background|thumbnail|cover|channel\s+art|profile\s+picture|pfp|mascot|emblem|badge|brand\s+mark)\b/i;
+const CREATIVE_IMAGE_NOUN_PATTERN =
+  /\b(picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|poster|sticker|banner|thumbnail|cover|channel\s+art|profile\s+picture|pfp|mascot|emblem|badge|brand\s+mark)\b/i;
 const TECH_BUILD_PATTERN = /\b(code|component|function|script|button|input|upload|feature|bug|fix|api|endpoint|layout)\b/i;
 
 const isImageEditRequest = (text = "") =>
@@ -90,14 +92,25 @@ const isImageEditRequest = (text = "") =>
     /\b(change|turn|transform)\s+(it|this|that)\s+(to|into|with)\b/i,
   ].some((pattern) => pattern.test(text));
 
-const isDirectImageCreationRequest = (text = "") =>
-  !TECH_BUILD_PATTERN.test(text) &&
-  ([
-    /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
-    /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
-    /\b(draw|paint|illustrate|render)\s+(me\s+)?(a|an|the|some)?\s*\w+/i,
-  ].some((pattern) => pattern.test(text)) ||
-    (/\b(make|create|generate|design)\b/i.test(text) && IMAGE_NOUN_PATTERN.test(text)));
+const isDirectImageCreationRequest = (text = "") => {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  const technicalBuildOnly = TECH_BUILD_PATTERN.test(cleaned) && !CREATIVE_IMAGE_NOUN_PATTERN.test(cleaned);
+
+  if (technicalBuildOnly) {
+    return false;
+  }
+
+  return (
+    [
+      /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+[\w-]+){0,14}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|poster|sticker|banner|thumbnail|cover|mascot|emblem|badge)\b/i,
+      /\b(make|create|generate|draw|render|design|paint|illustrate)\s+(?:me\s+)?(?:a|an|the|some)?(?:\s+[\w-]+){0,12}\s+\b(?:channel\s+art|profile\s+picture|brand\s+mark)\b/i,
+      /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|poster|sticker|banner|thumbnail|cover|channel\s+art|profile\s+picture|mascot|emblem|badge)\b(?:\s+[\w-]+){0,12}\s+\b(of|for|showing|with|featuring)\b/i,
+      /\b(draw|paint|illustrate|render|design)\s+(me\s+)?(a|an|the|some)?\s*\S+/i,
+      /\b(make|create|generate|design)\b.*\b(text\s+(saying|that\s+says|reading)|called|named)\b/i,
+    ].some((pattern) => pattern.test(cleaned)) ||
+    (/\b(make|create|generate|design)\b/i.test(cleaned) && IMAGE_NOUN_PATTERN.test(cleaned))
+  );
+};
 
 const hasGeneratedImage = (messages = []) =>
   messages.some((message) =>

@@ -82,7 +82,9 @@ const getLatestUserMessage = (messages) => {
 };
 
 const IMAGE_NOUN_PATTERN =
-  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|render|poster|sticker|banner|background)\b/i;
+  /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|render|poster|sticker|banner|background|thumbnail|cover|channel\s+art|profile\s+picture|pfp|mascot|emblem|badge|brand\s+mark)\b/i;
+const CREATIVE_IMAGE_NOUN_PATTERN =
+  /\b(picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|poster|sticker|banner|thumbnail|cover|channel\s+art|profile\s+picture|pfp|mascot|emblem|badge|brand\s+mark)\b/i;
 const TECH_BUILD_PATTERN = /\b(code|component|function|script|button|input|upload|feature|bug|fix|api|endpoint|layout)\b/i;
 
 const isImageEditRequest = (text = "") =>
@@ -93,14 +95,25 @@ const isImageEditRequest = (text = "") =>
     /\b(change|turn|transform)\s+(it|this|that)\s+(to|into|with)\b/i,
   ].some((pattern) => pattern.test(text));
 
-const isDirectImageCreationRequest = (text = "") =>
-  !TECH_BUILD_PATTERN.test(text) &&
-  ([
-    /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+\w+){0,8}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b/i,
-    /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|illustration)\b(?:\s+\w+){0,8}\s+\b(of|for|showing)\b/i,
-    /\b(draw|paint|illustrate|render)\s+(me\s+)?(a|an|the|some)?\s+\S+/i,
-  ].some((pattern) => pattern.test(text)) ||
-    (/\b(make|create|generate|design)\b/i.test(text) && IMAGE_NOUN_PATTERN.test(text)));
+const isDirectImageCreationRequest = (text = "") => {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  const technicalBuildOnly = TECH_BUILD_PATTERN.test(cleaned) && !CREATIVE_IMAGE_NOUN_PATTERN.test(cleaned);
+
+  if (technicalBuildOnly) {
+    return false;
+  }
+
+  return (
+    [
+      /\b(make|create|generate|draw|render|design|paint|illustrate)\b(?:\s+[\w-]+){0,14}\s+\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|poster|sticker|banner|thumbnail|cover|mascot|emblem|badge)\b/i,
+      /\b(make|create|generate|draw|render|design|paint|illustrate)\s+(?:me\s+)?(?:a|an|the|some)?(?:\s+[\w-]+){0,12}\s+\b(?:channel\s+art|profile\s+picture|brand\s+mark)\b/i,
+      /\b(image|picture|photo|logo|wallpaper|avatar|icon|art|artwork|illustration|drawing|painting|poster|sticker|banner|thumbnail|cover|channel\s+art|profile\s+picture|mascot|emblem|badge)\b(?:\s+[\w-]+){0,12}\s+\b(of|for|showing|with|featuring)\b/i,
+      /\b(draw|paint|illustrate|render|design)\s+(me\s+)?(a|an|the|some)?\s*\S+/i,
+      /\b(make|create|generate|design)\b.*\b(text\s+(saying|that\s+says|reading)|called|named)\b/i,
+    ].some((pattern) => pattern.test(cleaned)) ||
+    (/\b(make|create|generate|design)\b/i.test(cleaned) && IMAGE_NOUN_PATTERN.test(cleaned))
+  );
+};
 
 const shouldHandleImageRequest = (text = "", previousImagePrompt = "") => {
   const isStartingNewImage = isDirectImageCreationRequest(text) && !isImageEditRequest(text);
@@ -168,7 +181,33 @@ const explicitlyRequestsPeople = (text = "") =>
     text
   );
 
+const extractRequestedImageText = (text = "") => {
+  const patterns = [
+    /\btext\s+(?:saying|that\s+says|reading|of)\s+["'`“”]?([^"'`“”.!?;]+)["'`“”]?/i,
+    /\b(?:words|lettering)\s+(?:saying|that\s+says|reading)\s+["'`“”]?([^"'`“”.!?;]+)["'`“”]?/i,
+    /\b(?:called|named)\s+["'`“”]?([^"'`“”.!?;]+)["'`“”]?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+
+    if (match?.[1]) {
+      return match[1].replace(/\s+/g, " ").trim().slice(0, 80);
+    }
+  }
+
+  return "";
+};
+
 const getImageStyleHint = (text = "") => {
+  if (/\b(cartoon|cartoonish|cute|playful|mascot)\b/i.test(text)) {
+    return "Use a clean cartoon mascot style, friendly expressive shapes, bold readable silhouette, polished vector-like shading, and playful composition.";
+  }
+
+  if (/\b(channel|youtube|streamer|profile picture|pfp|thumbnail|cover|banner)\b/i.test(text)) {
+    return "Use channel-brand artwork with a strong mascot or symbol, clear composition, readable branding, and colors that work as a profile image or banner.";
+  }
+
   if (/\b(logo|icon|app icon|brand mark|symbol)\b/i.test(text)) {
     return "Use a clean centered vector-style composition, strong silhouette, crisp edges, and no extra background clutter.";
   }
@@ -191,11 +230,18 @@ const getImageStyleHint = (text = "") => {
 const buildImagePrompt = (message) => {
   const rawContent = message?.content || "";
   const subject = stripImageCommand(rawContent);
+  const requestedText = extractRequestedImageText(rawContent);
   const promptParts = [
     `Primary subject: ${subject}.`,
-    "Follow the user's request literally and do not add unrelated subjects.",
+    "Follow the user's request literally and do not add unrelated subjects. Preserve every requested detail, including accessories, colors, style, text, and brand or channel names.",
     getImageStyleHint(rawContent),
   ];
+
+  if (requestedText) {
+    promptParts.push(
+      `Include the exact readable text "${requestedText}" in the image. Spell it exactly this way and do not add any other words.`
+    );
+  }
 
   if (!explicitlyRequestsPeople(rawContent)) {
     promptParts.push(
@@ -207,7 +253,11 @@ const buildImagePrompt = (message) => {
     promptParts.push("Use the uploaded image as the visual reference for the requested edit or update.");
   }
 
-  promptParts.push("No watermark, no logo overlay, no random text.");
+  promptParts.push(
+    requestedText
+      ? "No watermark, no unrelated text, and no extra logo overlay beyond the requested design."
+      : "No watermark, no unrelated logo overlay, and no random text."
+  );
 
   return promptParts.join(" ");
 };
@@ -234,6 +284,7 @@ const stripImageEditCommand = (text = "") => {
 const buildImageEditPrompt = (message, previousPrompt) => {
   const rawContent = message?.content || "";
   const requestedChange = stripImageEditCommand(rawContent);
+  const requestedText = extractRequestedImageText(rawContent);
   const promptParts = [
     `Start from this previous image concept: ${previousPrompt}`,
     `Apply this requested change: ${requestedChange}.`,
@@ -247,7 +298,17 @@ const buildImageEditPrompt = (message, previousPrompt) => {
     );
   }
 
-  promptParts.push("No watermark, no logo overlay, no random text.");
+  if (requestedText) {
+    promptParts.push(
+      `Include the exact readable text "${requestedText}" in the image. Spell it exactly this way and do not add any other words.`
+    );
+  }
+
+  promptParts.push(
+    requestedText
+      ? "No watermark, no unrelated text, and no extra logo overlay beyond the requested design."
+      : "No watermark, no unrelated logo overlay, and no random text."
+  );
 
   return promptParts.join(" ");
 };
