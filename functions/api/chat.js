@@ -510,6 +510,30 @@ const getDataUrlUploadParts = (dataUrl = "") => {
 
 const encodeStoragePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 
+const createSupabaseImageBucket = async ({ supabaseUrl, serviceRoleKey, bucket }) => {
+  if (!serviceRoleKey) {
+    return false;
+  }
+
+  const response = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      id: bucket,
+      name: bucket,
+      public: true,
+      file_size_limit: 10 * 1024 * 1024,
+      allowed_mime_types: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+    }),
+  });
+
+  return response.ok || response.status === 409;
+};
+
 const uploadGeneratedImageToSupabase = async ({ imageUrl, prompt, request, env, user }) => {
   if (!imageUrl.startsWith("data:image/")) {
     return imageUrl;
@@ -540,7 +564,7 @@ const uploadGeneratedImageToSupabase = async ({ imageUrl, prompt, request, env, 
   const objectPath = `generated/${userId}/${date}/${objectId}.${parts.extension}`;
   const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${encodeStoragePath(objectPath)}`;
 
-  const response = await fetch(uploadUrl, {
+  const upload = () => fetch(uploadUrl, {
     method: "POST",
     headers: {
       apikey: serviceRoleKey || supabaseAnonKey,
@@ -552,8 +576,28 @@ const uploadGeneratedImageToSupabase = async ({ imageUrl, prompt, request, env, 
     body: parts.bytes,
   });
 
+  let response = await upload();
   if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
+    let errorText = await response.text().catch(() => "");
+    const bucketIsMissing = response.status === 400 && /bucket not found/i.test(errorText);
+
+    if (bucketIsMissing && serviceRoleKey) {
+      const createdBucket = await createSupabaseImageBucket({
+        supabaseUrl,
+        serviceRoleKey,
+        bucket,
+      });
+
+      if (createdBucket) {
+        response = await upload();
+        if (response.ok) {
+          return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodeStoragePath(objectPath)}`;
+        }
+
+        errorText = await response.text().catch(() => "");
+      }
+    }
+
     throw new Error(
       `Supabase image upload failed (${response.status}): ${errorText.slice(0, 300)}`
     );
@@ -831,9 +875,6 @@ export async function onRequestPost(context) {
         });
       } catch (storageError) {
         console.warn("XirAI Supabase image upload failed.", storageError);
-        imageUrl = buildPollinationsUrl(prompt);
-        imageFallbackNotice =
-          "Pro image storage is unavailable right now, so this image was saved with a more basic image service instead.";
       }
     } catch {
       imageUrl = buildPollinationsUrl(prompt);
