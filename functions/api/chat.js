@@ -554,7 +554,7 @@ export async function onRequestPost(context) {
     } catch {
       imageUrl = buildPollinationsUrl(prompt);
       imageFallbackNotice =
-        "Stable Diffusion is unavailable right now, so this image was generated with Pollinations.ai instead.";
+        "Pro image generation is unavailable right now, so this image was generated with a more basic model instead.";
     }
 
     return new Response(
