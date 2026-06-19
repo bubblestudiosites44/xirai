@@ -1,6 +1,7 @@
 const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
-const DEFAULT_LIMIT_FALLBACK_MODEL = "groq/compound";
+const DEFAULT_BASIC_FALLBACK_MODELS = ["llama-3.1-8b-instant", "openai/gpt-oss-20b", "qwen/qwen3-32b"];
+const DEFAULT_COMPOUND_FALLBACK_MODEL = "groq/compound";
 const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
 const SUPABASE_PROJECT_ID = "hbbtegiecallsiajrunj";
 const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
@@ -359,6 +360,30 @@ const getRateLimitResetLabel = (response) => {
   return formatResetDuration(Math.max(...resetDurations));
 };
 
+const parseModelList = (value, fallbackModels) => {
+  if (!value) {
+    return fallbackModels;
+  }
+
+  const models = String(value)
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+
+  return models.length ? models : fallbackModels;
+};
+
+const uniqueModels = (models) => [...new Set(models.filter(Boolean))];
+
+const withCompoundAnswerStyle = (messages) => [
+  {
+    role: "system",
+    content:
+      "Important for this fallback response: state the final answer directly. Do not use sections like 'What you feel', 'Goal', 'What we can take away from this', or similar coaching/reflection templates. Do not narrate tool use or reasoning. Answer the user's request plainly and naturally.",
+  },
+  ...messages,
+];
+
 const performWebSearch = async (query) => {
   const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const response = await fetch(searchUrl, {
@@ -488,7 +513,7 @@ export async function onRequestPost(context) {
     })),
   ];
 
-  const fetchGroqCompletion = (selectedModel) =>
+  const fetchGroqCompletion = (selectedModel, selectedMessages = messages) =>
     fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -497,7 +522,7 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model: selectedModel,
-        messages,
+        messages: selectedMessages,
         temperature: 0.6,
         max_completion_tokens: 1024,
         stream: true,
@@ -510,10 +535,29 @@ export async function onRequestPost(context) {
   if (!groqResponse.ok) {
     if (groqResponse.status === 429) {
       const resetLabel = getRateLimitResetLabel(groqResponse);
-      const fallbackModel = context.env.GROQ_LIMIT_FALLBACK_MODEL || DEFAULT_LIMIT_FALLBACK_MODEL;
+      const basicFallbackModels = uniqueModels(
+        parseModelList(context.env.GROQ_BASIC_FALLBACK_MODELS, DEFAULT_BASIC_FALLBACK_MODELS)
+      ).filter((fallbackModel) => fallbackModel !== model);
+      const compoundFallbackModel = context.env.GROQ_COMPOUND_FALLBACK_MODEL || DEFAULT_COMPOUND_FALLBACK_MODEL;
+      const fallbackAttempts = [
+        ...basicFallbackModels.map((fallbackModel) => ({
+          model: fallbackModel,
+          messages,
+        })),
+        {
+          model: compoundFallbackModel,
+          messages: withCompoundAnswerStyle(messages),
+        },
+      ];
       limitNotice = `You've hit the pro tier limit for XirAI. New responses will use a more basic model until your limit resets after ${resetLabel}.`;
 
-      groqResponse = await fetchGroqCompletion(fallbackModel);
+      for (const attempt of fallbackAttempts) {
+        groqResponse = await fetchGroqCompletion(attempt.model, attempt.messages);
+
+        if (groqResponse.ok) {
+          break;
+        }
+      }
 
       if (!groqResponse.ok) {
         return new Response("XirAI is still busy. Please try again in a moment.", {
