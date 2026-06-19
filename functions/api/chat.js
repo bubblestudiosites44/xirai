@@ -2,6 +2,7 @@ const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const DEFAULT_BASIC_FALLBACK_MODELS = ["llama-3.1-8b-instant", "openai/gpt-oss-20b", "qwen/qwen3-32b"];
 const DEFAULT_COMPOUND_FALLBACK_MODEL = "groq/compound";
+const DEFAULT_STABLE_DIFFUSION_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
 const POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt/";
 const SUPABASE_PROJECT_ID = "hbbtegiecallsiajrunj";
 const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
@@ -224,6 +225,77 @@ const encodeUrlComponentStrict = (value) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`
   );
 
+const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+};
+
+const imageResultToDataUrl = async (imageResult) => {
+  if (typeof imageResult === "string") {
+    return imageResult.startsWith("data:image/")
+      ? imageResult
+      : `data:image/png;base64,${imageResult}`;
+  }
+
+  if (imageResult instanceof Response) {
+    return `data:image/png;base64,${arrayBufferToBase64(await imageResult.arrayBuffer())}`;
+  }
+
+  if (imageResult instanceof ArrayBuffer) {
+    return `data:image/png;base64,${arrayBufferToBase64(imageResult)}`;
+  }
+
+  if (ArrayBuffer.isView(imageResult)) {
+    const buffer = imageResult.buffer.slice(
+      imageResult.byteOffset,
+      imageResult.byteOffset + imageResult.byteLength
+    );
+    return `data:image/png;base64,${arrayBufferToBase64(buffer)}`;
+  }
+
+  if (typeof imageResult?.image === "string") {
+    return imageResult.image.startsWith("data:image/")
+      ? imageResult.image
+      : `data:image/png;base64,${imageResult.image}`;
+  }
+
+  if (imageResult?.image instanceof ArrayBuffer) {
+    return `data:image/png;base64,${arrayBufferToBase64(imageResult.image)}`;
+  }
+
+  throw new Error("Stable Diffusion returned an unsupported image format.");
+};
+
+const buildImageResponseText = (imageUrl, prompt) => {
+  const promptMetadata = `[Image prompt metadata](xirai-image-prompt:${encodeUrlComponentStrict(prompt)})`;
+  const openLink = imageUrl.startsWith("data:image/")
+    ? ""
+    : `\n\n[Open full-size image](${imageUrl})`;
+
+  return `Here's your image:\n\n![Generated image](${imageUrl})${openLink}\n\n${promptMetadata}`;
+};
+
+const generateStableDiffusionImageUrl = async (prompt, env) => {
+  if (!env.AI?.run) {
+    throw new Error("Cloudflare Workers AI binding is not configured.");
+  }
+
+  const imageResult = await env.AI.run(env.STABLE_DIFFUSION_MODEL || DEFAULT_STABLE_DIFFUSION_MODEL, {
+    prompt,
+    num_steps: 20,
+    guidance: 7.5,
+  });
+
+  return imageResultToDataUrl(imageResult);
+};
+
 const buildPollinationsUrl = (prompt) => {
   const params = new URLSearchParams({
     width: "1024",
@@ -240,6 +312,15 @@ const buildPollinationsUrl = (prompt) => {
 const getLastGeneratedImagePrompt = (messages) => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const content = messages[index]?.content || "";
+    const metadataMatch = content.match(/xirai-image-prompt:([^\s)]+)/);
+    if (metadataMatch?.[1]) {
+      try {
+        return decodeURIComponent(metadataMatch[1]);
+      } catch {
+        return metadataMatch[1];
+      }
+    }
+
     const match = content.match(/https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+/);
 
     if (!match) {
@@ -465,14 +546,24 @@ export async function onRequestPost(context) {
     const prompt = isEditingPreviousImage
       ? buildImageEditPrompt(latestUserMessage, previousImagePrompt)
       : buildImagePrompt(latestUserMessage);
-    const imageUrl = buildPollinationsUrl(prompt);
+    let imageUrl;
+    let imageFallbackNotice = "";
+
+    try {
+      imageUrl = await generateStableDiffusionImageUrl(prompt, context.env);
+    } catch {
+      imageUrl = buildPollinationsUrl(prompt);
+      imageFallbackNotice =
+        "Stable Diffusion is unavailable right now, so this image was generated with Pollinations.ai instead.";
+    }
 
     return new Response(
-      `Here's your image:\n\n![Generated image](${imageUrl})\n\n[Open full-size image](${imageUrl})`,
+      buildImageResponseText(imageUrl, prompt),
       {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
+          ...(imageFallbackNotice ? { "X-XirAI-Image-Fallback-Notice": imageFallbackNotice } : {}),
         },
       }
     );

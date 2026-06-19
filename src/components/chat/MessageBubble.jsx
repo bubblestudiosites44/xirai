@@ -144,6 +144,17 @@ export default function MessageBubble({ message }) {
                   const codeChildren = codeElement?.props?.children || "";
                   return <CodeBlock className={className}>{codeChildren}</CodeBlock>;
                 },
+                a({ href, children, ...props }) {
+                  if (href?.startsWith("xirai-image-prompt:")) {
+                    return null;
+                  }
+
+                  return (
+                    <a href={href} {...props}>
+                      {children}
+                    </a>
+                  );
+                },
                 img({ src, alt }) {
                   return (
                     <a href={src} target="_blank" rel="noreferrer">

@@ -95,7 +95,11 @@ const isDirectImageCreationRequest = (text = "") =>
     (/\b(make|create|generate|design)\b/i.test(text) && IMAGE_NOUN_PATTERN.test(text)));
 
 const hasGeneratedImage = (messages = []) =>
-  messages.some((message) => /https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+/.test(message.content || ""));
+  messages.some((message) =>
+    /(xirai-image-prompt:|!\[Generated image]\((?:data:image\/|https:\/\/image\.pollinations\.ai\/prompt\/))/.test(
+      message.content || ""
+    )
+  );
 
 const shouldHandleImageRequest = (text = "", messages = []) => {
   const isStartingNewImage = isDirectImageCreationRequest(text) && !isImageEditRequest(text);
@@ -135,8 +139,10 @@ const shouldUseWebSearch = (text = "", { hasImages = false, wantsImage = false }
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 const extractGeneratedImageUrl = (content = "") => {
-  const markdownMatch = content.match(/!\[Generated image]\((https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+)\)/);
-  const fallbackMatch = content.match(/https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+/);
+  const markdownMatch = content.match(
+    /!\[Generated image]\((data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+)\)/
+  );
+  const fallbackMatch = content.match(/data:image\/[^\s)]+|https:\/\/image\.pollinations\.ai\/prompt\/[^\s]+/);
   const url = markdownMatch?.[1] || fallbackMatch?.[0] || "";
 
   return url.replace(/[)\].,]+$/g, "");
@@ -454,7 +460,11 @@ export default function Home() {
         throw new Error(errorData.error || "XirAI is busy right now. Please try again in a moment.");
       }
 
-      setModelLimitNotice(res.headers.get("X-XirAI-Limit-Notice") || "");
+      setModelLimitNotice(
+        res.headers.get("X-XirAI-Limit-Notice") ||
+          res.headers.get("X-XirAI-Image-Fallback-Notice") ||
+          ""
+      );
 
       const reader = res.body?.getReader();
       if (!reader) {
