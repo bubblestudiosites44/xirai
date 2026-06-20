@@ -5,6 +5,7 @@ import MessageBubble from "@/components/chat/MessageBubble";
 import ChatInput from "@/components/chat/ChatInput";
 import WelcomeScreen from "@/components/chat/WelcomeScreen";
 import GlowOrbs from "@/components/chat/GlowOrbs";
+import { authClient } from "@/lib/authClient";
 import { useAuth } from "@/lib/AuthContext";
 
 const STORAGE_KEY = "xirai.chat.v1";
@@ -247,8 +248,16 @@ const getApiMessages = (messages, latestMessageId) =>
       : {
           ...message,
           attachments: [],
-        }
+      }
   );
+
+const getFreshAccessToken = async (fallbackSession) => {
+  const {
+    data: { session: currentSession },
+  } = await authClient.auth.getSession();
+
+  return currentSession?.access_token || fallbackSession?.access_token || "";
+};
 
 const extractGeneratedImageUrl = (content = "") => {
   const markdownMatch = content.match(
@@ -560,16 +569,26 @@ export default function Home() {
 
     try {
       const startedAt = Date.now();
-      const res = await fetch("/api/chat", {
+      const buildRequestInit = (accessToken) => ({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify({
           messages: getApiMessages(nextMessages, userMsg.id),
         }),
       });
+      let accessToken = await getFreshAccessToken(session);
+      let res = await fetch("/api/chat", buildRequestInit(accessToken));
+
+      if (res.status === 401 && isAuthenticated) {
+        const {
+          data: { session: refreshedSession },
+        } = await authClient.auth.refreshSession();
+        accessToken = refreshedSession?.access_token || accessToken;
+        res = await fetch("/api/chat", buildRequestInit(accessToken));
+      }
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));

@@ -813,6 +813,11 @@ const getSupabaseUser = async (request, env) => {
   });
 
   if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    console.warn("XirAI Supabase auth validation failed.", {
+      status: response.status,
+      error: errorText.slice(0, 300),
+    });
     return null;
   }
 
